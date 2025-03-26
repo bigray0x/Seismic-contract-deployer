@@ -3,18 +3,19 @@
 # Stop script on errors
 set -e
 
-# Detect OS (Linux or macOS)
-OS=$(uname)
+# Detect OS (macOS or Linux)
+OS="$(uname -s)"
 if [[ "$OS" == "Darwin" ]]; then
-    SHELL_RC="$HOME/.zshrc"  # macOS (zsh)
+    SHELL_RC="$HOME/.zshrc"
+elif [[ "$OS" == "Linux" ]]; then
+    SHELL_RC="$HOME/.bashrc"
 else
-    SHELL_RC="$HOME/.bashrc"  # Linux (bash)
+    echo "❌ Unsupported OS: $OS"
+    exit 1
 fi
 
-# Faucet URL
+# Faucet and RPC Endpoint
 FAUCET_URL="https://faucet-2.seismicdev.net/api/claim"
-
-# RPC Endpoint for balance check
 RPC_URL="https://node-2.seismicdev.net/rpc"
 
 # Max faucet retry attempts
@@ -24,10 +25,10 @@ MAX_FAUCET_RETRIES=3
 check_and_install() {
     if ! command -v "$1" &> /dev/null; then
         echo "🔍 $1 not found. Installing..."
-        if [[ "$OS" == "Darwin" ]]; then
-            brew install "$2"
-        else
+        if [[ "$OS" == "Linux" ]]; then
             sudo apt install -y "$2"
+        elif [[ "$OS" == "Darwin" ]]; then
+            brew install "$2"
         fi
     else
         echo "✅ $1 is already installed."
@@ -48,7 +49,7 @@ install_rust() {
 # Function to install Seismic Foundry correctly
 install_sfoundry() {
     echo "🔍 Checking Seismic Foundry installation..."
-    
+
     if ! command -v sfoundryup &> /dev/null; then
         echo "🔍 Seismic Foundry not found. Installing..."
         curl -L -H "Accept: application/vnd.github.v3.raw" \
@@ -75,17 +76,18 @@ install_sfoundry() {
         fi
     fi
 
-    # Verify installation of essential tools
-    for tool in scast sforge ssolc; do
-        if ! command -v "$tool" &> /dev/null; then
-            echo "❌ $tool not found! Retrying installation..."
-            sfoundryup -p .
-            source "$SHELL_RC"
+    # **Fix for mv error**
+    for tool in sanvil scast sforge ssolc; do
+        if [[ -f "$HOME/.seismic/bin/$tool" ]]; then
+            echo "✅ $tool is already installed. Skipping move operation."
+        else
+            echo "🔄 Moving $tool to $HOME/.seismic/bin..."
+            mv "target/release/$tool" "$HOME/.seismic/bin/$tool"
         fi
     done
 
     # Final check
-    for tool in scast sforge ssolc; do
+    for tool in sanvil scast sforge ssolc; do
         if ! command -v "$tool" &> /dev/null; then
             echo "❌ $tool is still missing after installation attempt. Exiting."
             exit 1
@@ -160,19 +162,18 @@ validate_wallet "$WALLET_ADDRESS"
 
 # Update system and install dependencies
 echo "🔧 Updating system and installing required packages..."
-if [[ "$OS" == "Darwin" ]]; then
-    brew update && brew upgrade
-    check_and_install curl curl
-    check_and_install git git
-    check_and_install jq jq
-    check_and_install unzip unzip
-else
+if [[ "$OS" == "Linux" ]]; then
     sudo apt update && sudo apt upgrade -y
     check_and_install curl curl
     check_and_install git git
     check_and_install build-essential build-essential
     check_and_install file file
     check_and_install unzip unzip
+    check_and_install jq jq
+elif [[ "$OS" == "Darwin" ]]; then
+    brew update
+    check_and_install curl curl
+    check_and_install git git
     check_and_install jq jq
 fi
 
@@ -207,10 +208,4 @@ cd try-devnet/packages/contract/
 echo "🚀 Deploying the smart contract..."
 bash script/deploy.sh
 
-# Ensure Seismic tools (`scast`) are installed
-if ! command -v scast &> /dev/null; then
-    echo "❌ scast not found! Trying to reinstall Seismic Foundry tools..."
-    sfoundryup -p .
-    source "$SHELL_RC"
-
-    if ! command -v scast &> /dev/null; then
+echo "🎉 Deployment and interaction completed successfully!"
