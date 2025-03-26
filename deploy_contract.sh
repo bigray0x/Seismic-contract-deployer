@@ -44,6 +44,10 @@ install_sfoundry() {
     else
         echo "✅ Seismic Foundry is already installed."
     fi
+
+    # Ensure all tools are installed
+    echo "🔍 Installing Seismic Foundry tools..."
+    sfoundryup install || { echo "❌ Failed to install Seismic Foundry tools!"; exit 1; }
 }
 
 # Function to validate Ethereum-style wallet address
@@ -57,22 +61,23 @@ validate_wallet() {
     fi
 }
 
-# Function to check wallet balance
+# Function to check wallet balance (fixing hex conversion)
 check_balance() {
-    BALANCE=$(curl -s -X POST "$RPC_URL" -H "Content-Type: application/json" --data '{
+    BALANCE_HEX=$(curl -s -X POST "$RPC_URL" -H "Content-Type: application/json" --data '{
         "jsonrpc": "2.0",
         "method": "eth_getBalance",
         "params": ["'"$WALLET_ADDRESS"'", "latest"],
         "id": 1
     }' | jq -r '.result')
 
-    if [[ "$BALANCE" == "null" ]]; then
+    if [[ "$BALANCE_HEX" == "null" ]]; then
         echo "❌ Error fetching balance!"
         return 1
     fi
 
-    BALANCE_WEI=$((16#$BALANCE))
-    BALANCE_ETH=$(bc <<< "scale=5; $BALANCE_WEI / 10^18")
+    # Convert hex to decimal using bc
+    BALANCE_DEC=$(printf "%d\n" "$BALANCE_HEX" 2>/dev/null || echo "0")
+    BALANCE_ETH=$(bc <<< "scale=5; $BALANCE_DEC / 10^18")
 
     echo "💰 Current balance: $BALANCE_ETH ETH"
 
@@ -150,6 +155,18 @@ cd try-devnet/packages/contract/
 # Deploy the contract
 echo "🚀 Deploying the smart contract..."
 bash script/deploy.sh
+
+# Ensure Seismic tools (`scast`) are installed
+if ! command -v scast &> /dev/null; then
+    echo "❌ scast not found! Trying to reinstall Seismic Foundry tools..."
+    sfoundryup install
+    source ~/.bashrc
+
+    if ! command -v scast &> /dev/null; then
+        echo "❌ scast is still missing. Exiting."
+        exit 1
+    fi
+fi
 
 # Install Bun for transaction execution
 echo "🔍 Checking if Bun is installed..."
