@@ -1,0 +1,24 @@
+# System files
+.DS_Store
+Thumbs.db
+
+# Logs & Debugging
+*.log
+*.out
+
+# Node & Bun
+node_modules/
+bun.lockb
+bun-install.log
+
+# Rust & Cargo
+target/
+Cargo.lock
+
+# Temporary Files
+*.swp
+*.swo
+*.bak
+
+# Ignore environment config
+.env
