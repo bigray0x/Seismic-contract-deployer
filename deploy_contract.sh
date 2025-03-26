@@ -1,13 +1,16 @@
 #!/bin/bash
 
-# Stop the script on errors
+# Stop script on errors
 set -e
 
 # Faucet URL
-FAUCET_URL="https://faucet-2.seismicdev.net"
+FAUCET_URL="https://faucet-2.seismicdev.net/api/claim"
 
 # RPC Endpoint for balance check
 RPC_URL="https://node-2.seismicdev.net/rpc"
+
+# Max faucet retry attempts
+MAX_FAUCET_RETRIES=3
 
 # Function to check if a command exists and install if missing
 check_and_install() {
@@ -36,20 +39,7 @@ install_sfoundry() {
         echo "🔍 Seismic Foundry not found. Installing..."
         curl -L -H "Accept: application/vnd.github.v3.raw" \
              "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-
-        # Reload shell profile to ensure command availability
         source ~/.bashrc
-        source ~/.profile
-        source ~/.bash_profile 2>/dev/null || true
-
-        # Ensure sfoundryup is available
-        if ! command -v sfoundryup &> /dev/null; then
-            echo "❌ sfoundryup installation failed!"
-            exit 1
-        fi
-
-        # Install Seismic Foundry tools
-        echo "🚀 Running sfoundryup..."
         sfoundryup
     else
         echo "✅ Seismic Foundry is already installed."
@@ -67,29 +57,53 @@ validate_wallet() {
     fi
 }
 
-# Function to check balance
+# Function to check wallet balance
 check_balance() {
-    echo "🔍 Checking wallet balance..."
-    while true; do
-        BALANCE=$(curl -s -X POST "$RPC_URL" -H "Content-Type: application/json" --data '{
-            "jsonrpc": "2.0",
-            "method": "eth_getBalance",
-            "params": ["'"$WALLET_ADDRESS"'", "latest"],
-            "id": 1
-        }' | jq -r '.result')
+    BALANCE=$(curl -s -X POST "$RPC_URL" -H "Content-Type: application/json" --data '{
+        "jsonrpc": "2.0",
+        "method": "eth_getBalance",
+        "params": ["'"$WALLET_ADDRESS"'", "latest"],
+        "id": 1
+    }' | jq -r '.result')
 
-        BALANCE_WEI=$((16#$BALANCE))
-        BALANCE_ETH=$(bc <<< "scale=5; $BALANCE_WEI / 10^18")
+    if [[ "$BALANCE" == "null" ]]; then
+        echo "❌ Error fetching balance!"
+        return 1
+    fi
 
-        echo "💰 Current balance: $BALANCE_ETH ETH"
+    BALANCE_WEI=$((16#$BALANCE))
+    BALANCE_ETH=$(bc <<< "scale=5; $BALANCE_WEI / 10^18")
 
-        if (( $(echo "$BALANCE_ETH >= 0.1" | bc -l) )); then
+    echo "💰 Current balance: $BALANCE_ETH ETH"
+
+    if (( $(echo "$BALANCE_ETH >= 0.1" | bc -l) )); then
+        return 0  # Balance is sufficient
+    else
+        return 1  # Balance is insufficient
+    fi
+}
+
+# Function to request faucet with retry logic
+request_faucet() {
+    local attempt=1
+    while [[ $attempt -le $MAX_FAUCET_RETRIES ]]; do
+        echo "🚰 Attempt #$attempt: Requesting test ETH from faucet..."
+        RESPONSE=$(curl -s -X POST "$FAUCET_URL" -H "Content-Type: application/json" --data '{
+            "address": "'"$WALLET_ADDRESS"'"
+        }')
+
+        if [[ "$RESPONSE" == *"success"* ]]; then
+            echo "✅ Faucet request successful!"
             return 0
+        else
+            echo "❌ Faucet request failed. Retrying in 30s..."
+            sleep 30
+            ((attempt++))
         fi
-
-        echo "⏳ Funds not received yet. Checking again in 30 seconds..."
-        sleep 30
     done
+
+    echo "❌ Faucet request failed after $MAX_FAUCET_RETRIES attempts. Exiting."
+    exit 1
 }
 
 # Request user wallet address
@@ -112,21 +126,19 @@ install_rust
 # Install Seismic Foundry
 install_sfoundry
 
-# Request funds from faucet
-echo "🚰 Requesting test ETH from faucet..."
-FAUCET_RESPONSE=$(curl -s -X POST "$FAUCET_URL/api/claim" -H "Content-Type: application/json" --data '{
-    "address": "'"$WALLET_ADDRESS"'"
-}')
+# Check if wallet already has funds
+if check_balance; then
+    echo "✅ Wallet already has sufficient balance. Skipping faucet request."
+else
+    request_faucet
 
-if [[ $FAUCET_RESPONSE != *"success"* ]]; then
-    echo "❌ Faucet request failed: $FAUCET_RESPONSE"
-    exit 1
+    # Wait until funds arrive
+    echo "⏳ Waiting for test ETH to arrive..."
+    while ! check_balance; do
+        echo "⏳ Funds not received yet. Checking again in 30 seconds..."
+        sleep 30
+    done
 fi
-
-echo "✅ Faucet request successful! Waiting for funds to arrive..."
-
-# Wait until funds arrive
-check_balance
 
 echo "✅ Funds received! Proceeding with deployment."
 
