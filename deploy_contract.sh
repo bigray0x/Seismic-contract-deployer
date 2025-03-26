@@ -44,15 +44,24 @@ install_sfoundry() {
         echo "✅ Seismic Foundry is already installed."
     fi
 
-    # Install Seismic Foundry tools properly
+    # Install required dependencies
+    echo "🔧 Installing system dependencies..."
+    sudo apt install -y clang llvm lld cmake pkg-config libssl-dev
+
+    # Ensure all Seismic Foundry tools are installed
     echo "🔍 Installing Seismic Foundry tools..."
-    sfoundryup -p || { echo "❌ Failed to install Seismic Foundry tools!"; exit 1; }
+    sfoundryup install || { echo "❌ Failed to install Seismic Foundry tools!"; exit 1; }
+
+    # Add Foundry tools to PATH
+    export PATH="$HOME/.foundry/bin:$PATH"
+    echo 'export PATH="$HOME/.foundry/bin:$PATH"' >> ~/.bashrc
+    source ~/.bashrc
 
     # Verify installation of essential tools
     for tool in scast sforge ssolc; do
         if ! command -v "$tool" &> /dev/null; then
             echo "❌ $tool not found! Retrying installation..."
-            sfoundryup -p
+            sfoundryup install
             source ~/.bashrc
         fi
     done
@@ -175,7 +184,7 @@ bash script/deploy.sh
 # Ensure Seismic tools (`scast`) are installed
 if ! command -v scast &> /dev/null; then
     echo "❌ scast not found! Trying to reinstall Seismic Foundry tools..."
-    sfoundryup -p
+    sfoundryup install
     source ~/.bashrc
 
     if ! command -v scast &> /dev/null; then
