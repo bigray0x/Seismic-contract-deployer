@@ -36,7 +36,20 @@ install_sfoundry() {
         echo "🔍 Seismic Foundry not found. Installing..."
         curl -L -H "Accept: application/vnd.github.v3.raw" \
              "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
+
+        # Reload shell profile to ensure command availability
         source ~/.bashrc
+        source ~/.profile
+        source ~/.bash_profile 2>/dev/null || true
+
+        # Ensure sfoundryup is available
+        if ! command -v sfoundryup &> /dev/null; then
+            echo "❌ sfoundryup installation failed!"
+            exit 1
+        fi
+
+        # Install Seismic Foundry tools
+        echo "🚀 Running sfoundryup..."
         sfoundryup
     else
         echo "✅ Seismic Foundry is already installed."
@@ -56,24 +69,27 @@ validate_wallet() {
 
 # Function to check balance
 check_balance() {
-    BALANCE=$(curl -s -X POST "$RPC_URL" -H "Content-Type: application/json" --data '{
-        "jsonrpc": "2.0",
-        "method": "eth_getBalance",
-        "params": ["'"$WALLET_ADDRESS"'", "latest"],
-        "id": 1
-    }' | jq -r '.result')
+    echo "🔍 Checking wallet balance..."
+    while true; do
+        BALANCE=$(curl -s -X POST "$RPC_URL" -H "Content-Type: application/json" --data '{
+            "jsonrpc": "2.0",
+            "method": "eth_getBalance",
+            "params": ["'"$WALLET_ADDRESS"'", "latest"],
+            "id": 1
+        }' | jq -r '.result')
 
-    BALANCE_WEI=$((16#$BALANCE))
-    BALANCE_ETH=$(bc <<< "scale=5; $BALANCE_WEI / 10^18")
+        BALANCE_WEI=$((16#$BALANCE))
+        BALANCE_ETH=$(bc <<< "scale=5; $BALANCE_WEI / 10^18")
 
-    echo "Current balance: $BALANCE_ETH ETH"
+        echo "💰 Current balance: $BALANCE_ETH ETH"
 
-    # Check if balance is enough
-    if (( $(echo "$BALANCE_ETH >= 0.1" | bc -l) )); then
-        return 0
-    else
-        return 1
-    fi
+        if (( $(echo "$BALANCE_ETH >= 0.1" | bc -l) )); then
+            return 0
+        fi
+
+        echo "⏳ Funds not received yet. Checking again in 30 seconds..."
+        sleep 30
+    done
 }
 
 # Request user wallet address
@@ -98,16 +114,19 @@ install_sfoundry
 
 # Request funds from faucet
 echo "🚰 Requesting test ETH from faucet..."
-curl -X POST "$FAUCET_URL" -H "Content-Type: application/json" --data '{
+FAUCET_RESPONSE=$(curl -s -X POST "$FAUCET_URL/api/claim" -H "Content-Type: application/json" --data '{
     "address": "'"$WALLET_ADDRESS"'"
-}'
+}')
+
+if [[ $FAUCET_RESPONSE != *"success"* ]]; then
+    echo "❌ Faucet request failed: $FAUCET_RESPONSE"
+    exit 1
+fi
+
+echo "✅ Faucet request successful! Waiting for funds to arrive..."
 
 # Wait until funds arrive
-echo "⏳ Waiting for test ETH to arrive..."
-while ! check_balance; do
-    echo "⏳ Funds not received yet. Checking again in 30 seconds..."
-    sleep 30
-done
+check_balance
 
 echo "✅ Funds received! Proceeding with deployment."
 
