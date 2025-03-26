@@ -3,6 +3,14 @@
 # Stop script on errors
 set -e
 
+# Detect OS (Linux or macOS)
+OS=$(uname)
+if [[ "$OS" == "Darwin" ]]; then
+    SHELL_RC="$HOME/.zshrc"  # macOS (zsh)
+else
+    SHELL_RC="$HOME/.bashrc"  # Linux (bash)
+fi
+
 # Faucet URL
 FAUCET_URL="https://faucet-2.seismicdev.net/api/claim"
 
@@ -16,7 +24,11 @@ MAX_FAUCET_RETRIES=3
 check_and_install() {
     if ! command -v "$1" &> /dev/null; then
         echo "🔍 $1 not found. Installing..."
-        sudo apt install -y "$2"
+        if [[ "$OS" == "Darwin" ]]; then
+            brew install "$2"
+        else
+            sudo apt install -y "$2"
+        fi
     else
         echo "✅ $1 is already installed."
     fi
@@ -35,16 +47,25 @@ install_rust() {
 
 # Function to install Seismic Foundry correctly
 install_sfoundry() {
+    echo "🔍 Checking Seismic Foundry installation..."
+    
     if ! command -v sfoundryup &> /dev/null; then
         echo "🔍 Seismic Foundry not found. Installing..."
         curl -L -H "Accept: application/vnd.github.v3.raw" \
              "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-        source ~/.bashrc
     else
         echo "✅ Seismic Foundry is already installed."
     fi
 
-    # Attempt to install Seismic Foundry tools
+    # Ensure Seismic Foundry is in PATH
+    export PATH="$HOME/.seismic/bin:$PATH"
+    source "$SHELL_RC" 2>/dev/null
+
+    if ! command -v sfoundryup &> /dev/null; then
+        echo "❌ sfoundryup still not found in PATH. Exiting."
+        exit 1
+    fi
+
     echo "🔍 Installing Seismic Foundry tools..."
     if ! sfoundryup -p .; then
         echo "⚠️ First attempt failed. Trying alternative installation method..."
@@ -54,19 +75,19 @@ install_sfoundry() {
         fi
     fi
 
-    # Verify essential tools are installed
+    # Verify installation of essential tools
     for tool in scast sforge ssolc; do
         if ! command -v "$tool" &> /dev/null; then
             echo "❌ $tool not found! Retrying installation..."
-            sfoundryup -p . || sfoundryup -v latest
-            source ~/.bashrc
+            sfoundryup -p .
+            source "$SHELL_RC"
         fi
     done
 
     # Final check
     for tool in scast sforge ssolc; do
         if ! command -v "$tool" &> /dev/null; then
-            echo "❌ $tool is still missing after multiple installation attempts. Exiting."
+            echo "❌ $tool is still missing after installation attempt. Exiting."
             exit 1
         fi
     done
@@ -139,13 +160,21 @@ validate_wallet "$WALLET_ADDRESS"
 
 # Update system and install dependencies
 echo "🔧 Updating system and installing required packages..."
-sudo apt update && sudo apt upgrade -y
-check_and_install curl curl
-check_and_install git git
-check_and_install build-essential build-essential
-check_and_install file file
-check_and_install unzip unzip
-check_and_install jq jq
+if [[ "$OS" == "Darwin" ]]; then
+    brew update && brew upgrade
+    check_and_install curl curl
+    check_and_install git git
+    check_and_install jq jq
+    check_and_install unzip unzip
+else
+    sudo apt update && sudo apt upgrade -y
+    check_and_install curl curl
+    check_and_install git git
+    check_and_install build-essential build-essential
+    check_and_install file file
+    check_and_install unzip unzip
+    check_and_install jq jq
+fi
 
 # Install Rust
 install_rust
@@ -181,29 +210,7 @@ bash script/deploy.sh
 # Ensure Seismic tools (`scast`) are installed
 if ! command -v scast &> /dev/null; then
     echo "❌ scast not found! Trying to reinstall Seismic Foundry tools..."
-    sfoundryup -p . || sfoundryup -v latest
-    source ~/.bashrc
+    sfoundryup -p .
+    source "$SHELL_RC"
 
     if ! command -v scast &> /dev/null; then
-        echo "❌ scast is still missing. Exiting."
-        exit 1
-    fi
-fi
-
-# Install Bun for transaction execution
-echo "🔍 Checking if Bun is installed..."
-if ! command -v bun &> /dev/null; then
-    echo "🔧 Installing Bun..."
-    curl -fsSL https://bun.sh/install | bash
-    source ~/.bashrc
-else
-    echo "✅ Bun is already installed."
-fi
-
-# Execute a transaction with the extended contract
-echo "💰 Executing transaction with extended contract..."
-cd ../cli/
-bun install
-bash script/transact.sh
-
-echo "🎉 Deployment and interaction completed successfully!"
