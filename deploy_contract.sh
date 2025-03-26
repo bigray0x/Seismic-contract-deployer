@@ -44,7 +44,7 @@ install_sfoundry() {
         echo "✅ Seismic Foundry is already installed."
     fi
 
-    # Ensure all tools are installed
+    # Install Seismic Foundry tools properly
     echo "🔍 Installing Seismic Foundry tools..."
     sfoundryup -p || { echo "❌ Failed to install Seismic Foundry tools!"; exit 1; }
 
