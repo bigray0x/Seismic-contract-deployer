@@ -33,21 +33,37 @@ install_rust() {
     fi
 }
 
-# Function to install Seismic Foundry if not installed
+# Function to install Seismic Foundry correctly
 install_sfoundry() {
     if ! command -v sfoundryup &> /dev/null; then
         echo "🔍 Seismic Foundry not found. Installing..."
         curl -L -H "Accept: application/vnd.github.v3.raw" \
              "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
         source ~/.bashrc
-        sfoundryup
     else
         echo "✅ Seismic Foundry is already installed."
     fi
 
     # Ensure all tools are installed
     echo "🔍 Installing Seismic Foundry tools..."
-    sfoundryup install || { echo "❌ Failed to install Seismic Foundry tools!"; exit 1; }
+    sfoundryup -p || { echo "❌ Failed to install Seismic Foundry tools!"; exit 1; }
+
+    # Verify installation of essential tools
+    for tool in scast sforge ssolc; do
+        if ! command -v "$tool" &> /dev/null; then
+            echo "❌ $tool not found! Retrying installation..."
+            sfoundryup -p
+            source ~/.bashrc
+        fi
+    done
+
+    # Final check
+    for tool in scast sforge ssolc; do
+        if ! command -v "$tool" &> /dev/null; then
+            echo "❌ $tool is still missing after installation attempt. Exiting."
+            exit 1
+        fi
+    done
 }
 
 # Function to validate Ethereum-style wallet address
@@ -61,7 +77,7 @@ validate_wallet() {
     fi
 }
 
-# Function to check wallet balance (fixing hex conversion)
+# Function to check wallet balance
 check_balance() {
     BALANCE_HEX=$(curl -s -X POST "$RPC_URL" -H "Content-Type: application/json" --data '{
         "jsonrpc": "2.0",
@@ -75,8 +91,8 @@ check_balance() {
         return 1
     fi
 
-    # Convert hex to decimal using bc
-    BALANCE_DEC=$(printf "%d\n" "$BALANCE_HEX" 2>/dev/null || echo "0")
+    # Convert hex to decimal
+    BALANCE_DEC=$((16#${BALANCE_HEX#0x}))
     BALANCE_ETH=$(bc <<< "scale=5; $BALANCE_DEC / 10^18")
 
     echo "💰 Current balance: $BALANCE_ETH ETH"
@@ -159,7 +175,7 @@ bash script/deploy.sh
 # Ensure Seismic tools (`scast`) are installed
 if ! command -v scast &> /dev/null; then
     echo "❌ scast not found! Trying to reinstall Seismic Foundry tools..."
-    sfoundryup install
+    sfoundryup -p
     source ~/.bashrc
 
     if ! command -v scast &> /dev/null; then
