@@ -30,35 +30,40 @@ fi
 # Set Seismic Foundry installation directory
 SEISMIC_BIN="$HOME/.seismic/bin"
 
-# Ensure Seismic Foundry installation is clean
+# Ensure a clean installation of sfoundryup
 if [ -d "$SEISMIC_BIN" ]; then
     echo "🧹 Removing existing Seismic Foundry installation to prevent conflicts..."
     rm -rf "$SEISMIC_BIN"
 fi
 
-# Install sfoundryup if not installed
-if ! command -v sfoundryup &> /dev/null; then
-    echo "🔍 Installing sfoundryup..."
-    curl -L -H "Accept: application/vnd.github.v3.raw" \
-         "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-    source ~/.bashrc
-    export PATH="$HOME/.seismic/bin:$PATH"
-fi
+mkdir -p "$SEISMIC_BIN"
+
+# Install sfoundryup
+echo "🔍 Installing sfoundryup..."
+curl -L -H "Accept: application/vnd.github.v3.raw" \
+     "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
 
 # Ensure PATH is updated
 export PATH="$HOME/.seismic/bin:$PATH"
 echo 'export PATH="$HOME/.seismic/bin:$PATH"' >> ~/.bashrc
 source ~/.bashrc
 
+# Verify sfoundryup installation
+if [ ! -f "$HOME/.seismic/bin/sfoundryup" ]; then
+    echo "❌ sfoundryup installation failed. Exiting."
+    exit 1
+fi
+
 # Run sfoundryup to install Seismic Foundry tools
 echo "🚀 Running sfoundryup to install sfoundry..."
-sfoundryup
+"$HOME/.seismic/bin/sfoundryup"
 
 # Check if sfoundry is installed
 if ! command -v sfoundry &> /dev/null; then
     echo "❌ sfoundry installation failed. Retrying clean install..."
     rm -rf "$SEISMIC_BIN"
-    sfoundryup
+    mkdir -p "$SEISMIC_BIN"
+    "$HOME/.seismic/bin/sfoundryup"
     source ~/.bashrc
 fi
 
@@ -101,7 +106,7 @@ else
     echo "✅ Bun is already installed."
 fi
 
-# Navigate to CLI package (corrected path)
+# Navigate to CLI package
 cd ~/try-devnet/packages/cli/ || { echo "❌ Failed to enter CLI directory."; exit 1; }
 
 # Install dependencies with bun
