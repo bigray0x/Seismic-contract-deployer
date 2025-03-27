@@ -1,215 +1,60 @@
 #!/bin/bash
 
-set -euo pipefail
+set -e
 
-# Detect OS
-OS=$(uname -s)
-echo "✅ Detected OS: $OS"
+# Colors
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+BLUE='\033[0;34m'
+YELLOW='\033[0;33m'
+NC='\033[0m' # No Color
 
-# Colors for output
-if [[ -t 1 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    BOLD='\033[1m'
-    RESET='\033[0m'
-else
-    RED='' GREEN='' BOLD='' RESET=''
-fi
+# Helper functions
+info() { echo -e "${BLUE}[INFO]${NC} $1"; }
+success() { echo -e "${GREEN}[SUCCESS]${NC} $1"; }
+error() { echo -e "${RED}[ERROR]${NC} $1"; exit 1; }
 
-error() { echo -e "${RED}❌ Error:${RESET} $*" >&2; exit 1; }
-info() { echo -e "${GREEN}🔍${RESET} $*"; }
-success() { echo -e "${GREEN}✅${RESET} $*"; }
-
-# Install a package if missing
-install_if_missing() {
-    local cmd="$1" pkg="$2"
-    if ! command -v "$cmd" &>/dev/null; then
-        info "Installing $cmd..."
-        case "$OS" in
-            Linux) sudo apt-get update && sudo apt-get install -y "$pkg" || error "Failed to install $pkg" ;;
-            Darwin) brew install "$pkg" || error "Failed to install $pkg (ensure Homebrew is installed)" ;;
-            *) error "Unsupported OS: $OS" ;;
-        esac
-        success "$cmd installed."
-    else
-        success "$cmd is already installed."
+# Ensure required tools are installed
+check_and_install_tool() {
+    local tool=$1
+    local install_cmd=$2
+    if ! command -v "$tool" &>/dev/null; then
+        info "$tool not found. Installing..."
+        eval "$install_cmd"
+        if ! command -v "$tool" &>/dev/null; then
+            error "Failed to install $tool. Please install it manually and re-run the script."
+        fi
+        success "$tool installed successfully."
     fi
 }
 
-# Install dependencies
-info "Installing required dependencies..."
-install_if_missing "curl" "curl"
-install_if_missing "git" "git"
-install_if_missing "jq" "jq"
-install_if_missing "unzip" "unzip"
-install_if_missing "bc" "bc"
+info "Checking required tools..."
 
-# Install Rust
-if ! command -v rustc &>/dev/null; then
-    info "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || error "Failed to install Rust"
-    [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
-    success "Rust installed."
-else
-    success "Rust is already installed."
-fi
+check_and_install_tool "foundryup" "curl -L https://foundry.paradigm.xyz | bash"
+check_and_install_tool "sforge" "foundryup"
+check_and_install_tool "jq" "brew install jq || sudo apt install jq -y"
 
-# Install Bun
-if ! command -v bun &>/dev/null; then
-    info "Installing Bun..."
-    curl -fsSL https://bun.sh/install | bash || error "Failed to install Bun"
-    export PATH="$HOME/.bun/bin:$PATH"  # Update PATH immediately
-    command -v bun &>/dev/null || error "bun command not found after installation"
-    success "Bun installed."
-else
-    success "Bun is already installed."
-fi
+export PATH="$HOME/.foundry/bin:$PATH"
 
-# Install Seismic Foundry tools
-SEISMIC_DIR="$HOME/.seismic"
-BIN_DIR="$SEISMIC_DIR/bin"
-SFORGE="$BIN_DIR/sforge"
-SANVIL="$BIN_DIR/sanvil"
-SSOLC="/usr/local/bin/ssolc"
-SOURCE_DIR="$SEISMIC_DIR/source"
+info "All required tools are installed."
 
-if [ ! -f "$SFORGE" ] || [ ! -f "$SANVIL" ]; then
-    info "Installing Seismic Foundry from source..."
-    mkdir -p "$SOURCE_DIR" || error "Failed to create source directory"
-    cd "$SOURCE_DIR" || error "Failed to navigate to source dir"
-    if [ ! -d ".git" ]; then
-        git clone --branch seismic https://github.com/SeismicSystems/seismic-foundry.git . || error "Failed to clone seismic-foundry"
-    fi
-    cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/forge --locked || error "Failed to install sforge"
-    cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/anvil --locked || error "Failed to install sanvil"
-    export PATH="$BIN_DIR:$PATH"  # Update PATH immediately
-    command -v sforge &>/dev/null || error "sforge command not found after installation"
-    success "sforge and sanvil installed and verified."
-else
-    success "sforge and sanvil are already installed."
-    export PATH="$BIN_DIR:$PATH"  # Ensure PATH includes sforge
-    command -v sforge &>/dev/null || error "sforge command not found despite binary existing"
-fi
-
-# Install ssolc
-if ! command -v ssolc &>/dev/null; then
-    info "Installing ssolc..."
-    case "$OS" in
-        Linux) curl -L "https://github.com/SeismicSystems/seismic-foundry/releases/latest/download/ssolc-linux-x86_64.tar.gz" -o ssolc.tar.gz || error "Failed to download ssolc" ;;
-        Darwin) curl -L "https://github.com/SeismicSystems/seismic-foundry/releases/latest/download/ssolc-darwin-x86_64.tar.gz" -o ssolc.tar.gz || error "Failed to download ssolc" ;;
-        *) error "Unsupported OS for ssolc installation" ;;
-    esac
-    sudo tar -xzf ssolc.tar.gz -C /usr/local/bin || error "Failed to extract ssolc"
-    rm ssolc.tar.gz
-    sudo chmod +x "$SSOLC" || error "Failed to set ssolc permissions"
-    success "ssolc installed at $SSOLC"
-    command -v ssolc &>/dev/null || error "ssolc command not found after installation"
-else
-    success "ssolc is already installed."
-    command -v ssolc &>/dev/null || error "ssolc command not found despite binary existing"
-fi
-
-# Return to home directory
-cd "$HOME" || error "Failed to return to home directory"
-
-# Ensure contract.sol has EncryptedStorage
-info "Ensuring contract.sol contains EncryptedStorage..."
-cat << 'EOF' > contract.sol
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract EncryptedStorage {
-    uint256 private encryptedValue;
-
-    constructor(uint256 _key) {
-        encryptedValue = _key;
-    }
-
-    function setValue(uint256 _value) public {
-        encryptedValue = _value;
-    }
-
-    function getValue() public view returns (uint256) {
-        return encryptedValue;
-    }
-}
-EOF
-success "contract.sol updated with EncryptedStorage."
-
-# Validate contract syntax and force compilation
-info "Validating contract syntax and forcing compilation..."
-sforge compile --force contract.sol || error "Contract compilation failed. Fix syntax errors in contract.sol"
-
-# Get and validate wallet address
-while true; do
-    read -r -p "🔍 Please enter your wallet address: " WALLET_ADDRESS
-    if [[ "$WALLET_ADDRESS" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
-        success "Wallet address is valid: $WALLET_ADDRESS"
-        break
-    else
-        echo "❌ Invalid wallet address! Must be 0x followed by 40 hex chars."
-    fi
+# Check and fund wallet balance if needed
+WALLET_ADDRESS=""
+while [[ -z "$WALLET_ADDRESS" ]]; do
+    read -r -p "🔍 Enter your wallet address: " WALLET_ADDRESS
+    [[ -z "$WALLET_ADDRESS" ]] && error "Wallet address cannot be empty!"
 done
 
-# Create a temporary script to check balance
-info "Checking balance for wallet: $WALLET_ADDRESS..."
-cat << EOF > check_balance.sol
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
+BALANCE=$(curl -s -X POST -H "Content-Type: application/json" --data '{"jsonrpc":"2.0","method":"eth_getBalance","params":["'"$WALLET_ADDRESS"'", "latest"],"id":1}' https://node-2.seismicdev.net/rpc | jq -r '.result')
 
-contract BalanceChecker {
-    function getBalance(address account) public view returns (uint256) {
-        return account.balance;
-    }
-}
-EOF
-BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
-    rm check_balance.sol
-    error "Failed to retrieve balance with sforge script"
-}
-echo "DEBUG: BALANCE_JSON=$BALANCE_JSON"
-rm check_balance.sol
-BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '.returns."0".value // "0"')
-if [[ "$BALANCE_HEX" =~ ^[0-9]+$ ]]; then
-    BALANCE=$(echo "$BALANCE_HEX" | awk '{print $1 / 10^18}')
-else
-    BALANCE="0"
-fi
-[[ "$BALANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]] || error "Invalid balance format: $BALANCE"
-success "Current balance: $BALANCE ETH"
-
-# Request faucet funds if balance is low
-if (( $(echo "$BALANCE < 0.1" | bc -l) )); then
-    info "Requesting funds from faucet for $WALLET_ADDRESS..."
-    echo "Visit https://faucet-2.seismicdev.net, enter $WALLET_ADDRESS, and request tokens."
-    read -r -p "Press Enter after requesting funds (wait 15-30s for processing)..."
-    # Recheck balance
-    cat << EOF > check_balance.sol
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract BalanceChecker {
-    function getBalance(address account) public view returns (uint256) {
-        return account.balance;
-    }
-}
-EOF
-    BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
-        rm check_balance.sol
-        error "Failed to retrieve balance with sforge script"
-    }
-    echo "DEBUG: BALANCE_JSON=$BALANCE_JSON"
-    rm check_balance.sol
-    BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '.returns."0".value // "0"')
-    if [[ "$BALANCE_HEX" =~ ^[0-9]+$ ]]; then
-        BALANCE=$(echo "$BALANCE_HEX" | awk '{print $1 / 10^18}')
-    else
-        BALANCE="0"
-    fi
-    success "Updated balance: $BALANCE ETH"
+if [[ "$BALANCE" == "0x0" || -z "$BALANCE" ]]; then
+    info "Wallet balance is zero. Requesting funds from faucet..."
+    curl -X POST -H "Content-Type: application/json" --data '{"address": "'"$WALLET_ADDRESS"'"}' https://faucet-2.seismicdev.net/request
+    success "Faucet request sent. Please wait for the funds to arrive."
+    sleep 10
 fi
 
-# Deploy EncryptedStorage with encryption key
+# Deploy EncryptedStorage contract
 info "Deploying EncryptedStorage to Seismic Devnet..."
 while true; do
     read -r -s -p "🔍 Enter your private key (input hidden): " PRIVATE_KEY
@@ -224,27 +69,32 @@ while true; do
     fi
 done
 
-while true; do
-    read -r -p "🔍 Enter an encryption key for EncryptedStorage (uint256, e.g., 12345): " ENCRYPTION_KEY
-    if [[ "$ENCRYPTION_KEY" =~ ^[0-9]+$ ]]; then
-        success "Encryption key set: $ENCRYPTION_KEY"
-        break
-    else
-        echo "❌ Invalid encryption key! Must be a positive integer."
-    fi
-done
-
-info "Deploying EncryptedStorage contract..."
-ENC_DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" --broadcast contract.sol:EncryptedStorage --constructor-args "$ENCRYPTION_KEY" --json) || {
-    echo "DEBUG: ENC_DEPLOY_OUTPUT=$ENC_DEPLOY_OUTPUT"
-    error "Failed to deploy EncryptedStorage"
-}
-echo "DEBUG: ENC_DEPLOY_OUTPUT=$ENC_DEPLOY_OUTPUT"
-ENC_DEPLOYED_CONTRACT=$(echo "$ENC_DEPLOY_OUTPUT" | jq -r '.deployedTo // ""')
-if [ -z "$ENC_DEPLOYED_CONTRACT" ]; then
-    ENC_TX_HASH=$(echo "$ENC_DEPLOY_OUTPUT" | jq -r '.transactionHash // ""')
-    [ -n "$ENC_TX_HASH" ] && success "EncryptedStorage transaction sent ($ENC_TX_HASH), view at https://explorer-2.seismicdev.net/tx/$ENC_TX_HASH" || error "Failed to deploy EncryptedStorage: No address or transaction hash"
+read -r -p "🔍 Enter an encryption key for EncryptedStorage (uint256, e.g., 12345): " ENCRYPTION_KEY
+if [[ "$ENCRYPTION_KEY" =~ ^[0-9]+$ ]]; then
+    success "Encryption key set: $ENCRYPTION_KEY"
 else
-    success "EncryptedStorage deployed at: $ENC_DEPLOYED_CONTRACT"
-    echo "View on explorer: https://explorer-2.seismicdev.net/address/$ENC_DEPLOYED_CONTRACT"
+    error "Invalid encryption key! Must be a positive integer."
+fi
+
+ENC_DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" --broadcast contract.sol:EncryptedStorage --constructor-args "$ENCRYPTION_KEY" --json 2>&1)
+
+echo "DEBUG: ENC_DEPLOY_OUTPUT=$ENC_DEPLOY_OUTPUT"
+
+# Extract JSON part only
+ENC_DEPLOY_JSON=$(echo "$ENC_DEPLOY_OUTPUT" | grep -oP '\{.*\}' || echo "")
+
+if [[ -n "$ENC_DEPLOY_JSON" ]]; then
+    ENC_ADDRESS=$(echo "$ENC_DEPLOY_JSON" | jq -r '.deployedTo // ""' 2>/dev/null)
+    ENC_TX_HASH=$(echo "$ENC_DEPLOY_JSON" | jq -r '.transactionHash // ""' 2>/dev/null)
+else
+    ENC_ADDRESS=$(echo "$ENC_DEPLOY_OUTPUT" | grep -oP '(?<=Deployed to: )\S+')
+    ENC_TX_HASH=$(echo "$ENC_DEPLOY_OUTPUT" | grep -oP '(?<=Transaction hash: )\S+')
+fi
+
+if [[ -n "$ENC_ADDRESS" ]]; then
+    success "EncryptedStorage deployed at: $ENC_ADDRESS"
+    echo "View on explorer: https://explorer-2.seismicdev.net/address/$ENC_ADDRESS"
+    [[ -n "$ENC_TX_HASH" ]] && echo "Transaction hash: $ENC_TX_HASH" && echo "View transaction: https://explorer-2.seismicdev.net/tx/$ENC_TX_HASH"
+else
+    error "Deployment failed: Could not parse contract address or transaction hash from output"
 fi
