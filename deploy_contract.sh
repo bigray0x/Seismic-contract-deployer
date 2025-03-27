@@ -58,7 +58,7 @@ fi
 if ! command -v bun &>/dev/null; then
     info "Installing Bun..."
     curl -fsSL https://bun.sh/install | bash || error "Failed to install Bun"
-    export PATH="$HOME/.bun/bin:$PATH"
+    export PATH="$HOME/.bun/bin:$PATH"  # Update PATH immediately
     command -v bun &>/dev/null || error "bun command not found after installation"
     success "Bun installed."
 else
@@ -82,13 +82,12 @@ if [ ! -f "$SFORGE" ] || [ ! -f "$SANVIL" ]; then
     fi
     cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/forge --locked || error "Failed to install sforge"
     cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/anvil --locked || error "Failed to install sanvil"
-    export PATH="$BIN_DIR:$PATH"
-    if ! command -v sforge &>/dev/null; then
-        error "sforge command not found after installation"
-    fi
+    export PATH="$BIN_DIR:$PATH"  # Update PATH immediately
+    command -v sforge &>/dev/null || error "sforge command not found after installation"
     success "sforge and sanvil installed and verified."
 else
     success "sforge and sanvil are already installed."
+    export PATH="$BIN_DIR:$PATH"  # Ensure PATH includes sforge
     command -v sforge &>/dev/null || error "sforge command not found despite binary existing"
 fi
 
@@ -113,68 +112,37 @@ fi
 # Return to home directory
 cd "$HOME" || error "Failed to return to home directory"
 
-# Create EncryptedStorage contract if missing
-if [ ! -f "encrypted_storage.sol" ]; then
-    info "Creating default encrypted contract (EncryptedStorage)..."
-    cat << 'EOF' > encrypted_storage.sol
+# Create contract.sol with EncryptedStorage (assuming this is your intent)
+if [ ! -f "contract.sol" ]; then
+    info "Creating contract file with EncryptedStorage..."
+    cat << 'EOF' > contract.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
 contract EncryptedStorage {
     uint256 private encryptedValue;
-    uint256 private encryptionKey;
 
     constructor(uint256 _key) {
-        encryptionKey = _key;
+        encryptedValue = _key;
     }
 
-    function setEncryptedValue(uint256 _value) public {
-        encryptedValue = _value ^ encryptionKey;
+    function setValue(uint256 _value) public {
+        encryptedValue = _value;
     }
 
-    function getDecryptedValue() public view returns (uint256) {
-        return encryptedValue ^ encryptionKey;
-    }
-
-    function getEncryptedValue() public view returns (uint256) {
+    function getValue() public view returns (uint256) {
         return encryptedValue;
     }
 }
 EOF
-    success "encrypted_storage.sol created."
+    success "contract.sol created with EncryptedStorage."
 else
-    success "encrypted_storage.sol already exists."
-fi
-
-# Create SimpleStorage contract if missing
-if [ ! -f "simple_storage.sol" ]; then
-    info "Creating default standard contract (SimpleStorage)..."
-    cat << 'EOF' > simple_storage.sol
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract SimpleStorage {
-    uint256 private storedValue;
-
-    function setValue(uint256 _value) public {
-        storedValue = _value;
-    }
-
-    function getValue() public view returns (uint256) {
-        return storedValue;
-    }
-}
-EOF
-    success "simple_storage.sol created."
-else
-    success "simple_storage.sol already exists."
+    success "contract.sol already exists."
 fi
 
 # Validate contract syntax
-info "Validating EncryptedStorage contract syntax..."
-sforge compile encrypted_storage.sol || error "EncryptedStorage compilation failed. Fix syntax errors."
-info "Validating SimpleStorage contract syntax..."
-sforge compile simple_storage.sol || error "SimpleStorage compilation failed. Fix syntax errors."
+info "Validating contract syntax..."
+sforge compile contract.sol || error "Contract compilation failed. Fix syntax errors in contract.sol"
 
 # Get and validate wallet address
 while true; do
@@ -187,7 +155,7 @@ while true; do
     fi
 done
 
-# Check balance
+# Create a temporary script to check balance
 info "Checking balance for wallet: $WALLET_ADDRESS..."
 cat << EOF > check_balance.sol
 // SPDX-License-Identifier: MIT
@@ -214,8 +182,8 @@ fi
 [[ "$BALANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]] || error "Invalid balance format: $BALANCE"
 success "Current balance: $BALANCE ETH"
 
-# Request faucet funds if balance is low (0.2 ETH for two deployments)
-if (( $(echo "$BALANCE < 0.2" | bc -l) )); then
+# Request faucet funds if balance is low
+if (( $(echo "$BALANCE < 0.1" | bc -l) )); then
     info "Requesting funds from faucet for $WALLET_ADDRESS..."
     echo "Visit https://faucet-2.seismicdev.net, enter $WALLET_ADDRESS, and request tokens."
     read -r -p "Press Enter after requesting funds (wait 15-30s for processing)..."
@@ -245,8 +213,8 @@ EOF
     success "Updated balance: $BALANCE ETH"
 fi
 
-# Get private key and encryption key
-info "Deploying contracts to Seismic Devnet..."
+# Deploy EncryptedStorage with encryption key
+info "Deploying EncryptedStorage to Seismic Devnet..."
 while true; do
     read -r -s -p "🔍 Enter your private key (input hidden): " PRIVATE_KEY
     echo
@@ -259,72 +227,28 @@ while true; do
         echo "❌ Invalid private key! Must be 64 hex characters."
     fi
 done
-read -r -p "🔍 Enter an encryption key for EncryptedStorage (uint256, e.g., 12345): " ENCRYPTION_KEY
-if ! [[ "$ENCRYPTION_KEY" =~ ^[0-9]+$ ]]; then
-    error "Encryption key must be a positive integer!"
-fi
-success "Encryption key set: $ENCRYPTION_KEY"
 
-# Deploy EncryptedStorage
+while true; do
+    read -r -p "🔍 Enter an encryption key for EncryptedStorage (uint256, e.g., 12345): " ENCRYPTION_KEY
+    if [[ "$ENCRYPTION_KEY" =~ ^[0-9]+$ ]]; then
+        success "Encryption key set: $ENCRYPTION_KEY"
+        break
+    else
+        echo "❌ Invalid encryption key! Must be a positive integer."
+    fi
+done
+
 info "Deploying EncryptedStorage contract..."
-ENC_DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" --broadcast encrypted_storage.sol:EncryptedStorage --constructor-args "$ENCRYPTION_KEY" --json) || {
+ENC_DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" --broadcast contract.sol:EncryptedStorage --constructor-args "$ENCRYPTION_KEY" --json) || {
     echo "DEBUG: ENC_DEPLOY_OUTPUT=$ENC_DEPLOY_OUTPUT"
-    error "Failed to deploy EncryptedStorage contract"
+    error "Failed to deploy EncryptedStorage"
 }
 echo "DEBUG: ENC_DEPLOY_OUTPUT=$ENC_DEPLOY_OUTPUT"
 ENC_DEPLOYED_CONTRACT=$(echo "$ENC_DEPLOY_OUTPUT" | jq -r '.deployedTo // ""')
 if [ -z "$ENC_DEPLOYED_CONTRACT" ]; then
     ENC_TX_HASH=$(echo "$ENC_DEPLOY_OUTPUT" | jq -r '.transactionHash // ""')
-    [ -n "$ENC_TX_HASH" ] && success "EncryptedStorage transaction sent ($ENC_TX_HASH), view at https://explorer-2.seismicdev.net/tx/$ENC_TX_HASH" || error "EncryptedStorage deployment failed: No address or transaction hash returned"
+    [ -n "$ENC_TX_HASH" ] && success "EncryptedStorage transaction sent ($ENC_TX_HASH), view at https://explorer-2.seismicdev.net/tx/$ENC_TX_HASH" || error "Failed to deploy EncryptedStorage: No address or transaction hash"
 else
     success "EncryptedStorage deployed at: $ENC_DEPLOYED_CONTRACT"
     echo "View on explorer: https://explorer-2.seismicdev.net/address/$ENC_DEPLOYED_CONTRACT"
 fi
-
-# Deploy SimpleStorage
-info "Deploying SimpleStorage contract..."
-STD_DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" --broadcast simple_storage.sol:SimpleStorage --json) || {
-    echo "DEBUG: STD_DEPLOY_OUTPUT=$STD_DEPLOY_OUTPUT"
-    error "Failed to deploy SimpleStorage contract"
-}
-echo "DEBUG: STD_DEPLOY_OUTPUT=$STD_DEPLOY_OUTPUT"
-STD_DEPLOYED_CONTRACT=$(echo "$STD_DEPLOY_OUTPUT" | jq -r '.deployedTo // ""')
-if [ -z "$STD_DEPLOYED_CONTRACT" ]; then
-    STD_TX_HASH=$(echo "$STD_DEPLOY_OUTPUT" | jq -r '.transactionHash // ""')
-    [ -n "$STD_TX_HASH" ] && success "SimpleStorage transaction sent ($STD_TX_HASH), view at https://explorer-2.seismicdev.net/tx/$STD_TX_HASH" || error "SimpleStorage deployment failed: No address or transaction hash returned"
-else
-    success "SimpleStorage deployed at: $STD_DEPLOYED_CONTRACT"
-    echo "View on explorer: https://explorer-2.seismicdev.net/address/$STD_DEPLOYED_CONTRACT"
-fi
-
-# Interact with EncryptedStorage
-info "Interacting with EncryptedStorage contract..."
-SET_ENC_VALUE="42"
-SET_ENC_OUTPUT=$(sforge cast send --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" "$ENC_DEPLOYED_CONTRACT" "setEncryptedValue(uint256)" "$SET_ENC_VALUE" --json) || {
-    echo "DEBUG: SET_ENC_OUTPUT=$SET_ENC_OUTPUT"
-    error "Failed to set encrypted value"
-}
-SET_ENC_TX_HASH=$(echo "$SET_ENC_OUTPUT" | jq -r '.transactionHash // ""')
-[ -n "$SET_ENC_TX_HASH" ] && success "Set encrypted value $SET_ENC_VALUE, tx: $SET_ENC_TX_HASH" || error "Failed to extract set transaction hash"
-echo "View set transaction: https://explorer-2.seismicdev.net/tx/$SET_ENC_TX_HASH"
-
-ENC_VALUE=$(sforge cast call --rpc-url https://node-2.seismicdev.net/rpc "$ENC_DEPLOYED_CONTRACT" "getEncryptedValue()(uint256)") || error "Failed to get encrypted value"
-success "Encrypted value on-chain: $(echo "$ENC_VALUE" | tr -d '"')"
-DEC_VALUE=$(sforge cast call --rpc-url https://node-2.seismicdev.net/rpc "$ENC_DEPLOYED_CONTRACT" "getDecryptedValue()(uint256)") || error "Failed to get decrypted value"
-success "Decrypted value: $(echo "$DEC_VALUE" | tr -d '"')"
-[ "$(echo "$DEC_VALUE" | tr -d '"')" -eq "$SET_ENC_VALUE" ] && success "Encrypted value verified!" || echo "⚠️ Warning: Decrypted value does not match set value"
-
-# Interact with SimpleStorage
-info "Interacting with SimpleStorage contract..."
-SET_STD_VALUE="100"
-SET_STD_OUTPUT=$(sforge cast send --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" "$STD_DEPLOYED_CONTRACT" "setValue(uint256)" "$SET_STD_VALUE" --json) || {
-    echo "DEBUG: SET_STD_OUTPUT=$SET_STD_OUTPUT"
-    error "Failed to set standard value"
-}
-SET_STD_TX_HASH=$(echo "$SET_STD_OUTPUT" | jq -r '.transactionHash // ""')
-[ -n "$SET_STD_TX_HASH" ] && success "Set standard value $SET_STD_VALUE, tx: $SET_STD_TX_HASH" || error "Failed to extract set transaction hash"
-echo "View set transaction: https://explorer-2.seismicdev.net/tx/$SET_STD_TX_HASH"
-
-STD_VALUE=$(sforge cast call --rpc-url https://node-2.seismicdev.net/rpc "$STD_DEPLOYED_CONTRACT" "getValue()(uint256)") || error "Failed to get standard value"
-success "Retrieved standard value: $(echo "$STD_VALUE" | tr -d '"')"
-[ "$(echo "$STD_VALUE" | tr -d '"')" -eq "$SET_STD_VALUE" ] && success "Standard value verified!" || echo "⚠️ Warning: Retrieved value does not match set value"
