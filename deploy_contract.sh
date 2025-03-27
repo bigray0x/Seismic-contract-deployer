@@ -7,7 +7,7 @@ set -e
 OS=$(uname -s)
 if [[ "$OS" == "Darwin" ]]; then
     SHELL_RC="$HOME/.zshrc"
-    # macOS: use greadlink (install via "brew install coreutils") 
+    # On macOS, use greadlink (install via "brew install coreutils") if available
     READLINK="greadlink"
 else
     SHELL_RC="$HOME/.bashrc"
@@ -18,6 +18,22 @@ fi
 FAUCET_URL="https://faucet-2.seismicdev.net/api/claim"
 RPC_URL="https://node-2.seismicdev.net/rpc"
 MAX_FAUCET_RETRIES=3
+
+########################################
+# Function: check_and_install
+########################################
+check_and_install() {
+    if ! command -v "$1" &> /dev/null; then
+        echo "🔍 $1 not found. Installing..."
+        if [[ "$OS" == "Darwin" ]]; then
+            brew install "$2"
+        else
+            sudo apt install -y "$2"
+        fi
+    else
+        echo "✅ $1 is already installed."
+    fi
+}
 
 ########################################
 # Function: install_dependencies
@@ -38,22 +54,6 @@ install_dependencies() {
         check_and_install file file
         check_and_install unzip unzip
         check_and_install jq jq
-    fi
-}
-
-########################################
-# Function: check_and_install
-########################################
-check_and_install() {
-    if ! command -v "$1" &> /dev/null; then
-        echo "🔍 $1 not found. Installing..."
-        if [[ "$OS" == "Darwin" ]]; then
-            brew install "$2"
-        else
-            sudo apt install -y "$2"
-        fi
-    else
-        echo "✅ $1 is already installed."
     fi
 }
 
@@ -84,7 +84,7 @@ install_sfoundry() {
         echo "✅ Seismic Foundry is already installed."
     fi
 
-    # Ensure Seismic Foundry is in PATH
+    # Ensure Seismic Foundry binary directory is in PATH
     export PATH="$HOME/.seismic/bin:$PATH"
     source "$SHELL_RC" 2>/dev/null
 
@@ -92,41 +92,37 @@ install_sfoundry() {
         echo "❌ sfoundryup still not found in PATH. Exiting."
         exit 1
     fi
+}
 
+########################################
+# Function: install_seismic_foundry_tools
+########################################
+install_seismic_foundry_tools() {
     echo "🔍 Installing Seismic Foundry tools..."
-    if ! sfoundryup -p . &> /dev/null; then
-        echo "⚠️ First attempt failed. Trying alternative installation method..."
-        if ! sfoundryup -v latest &> /dev/null; then
-            echo "❌ Failed to install Seismic Foundry tools!"
-            exit 1
-        fi
-    fi
-
-    # For each essential tool, check and move if necessary
-    for tool in sanvil scast sforge ssolc; do
-        src="target/release/$tool"
-        dst="$HOME/.seismic/bin/$tool"
-        if [[ -f "$dst" ]]; then
-            # Compare resolved absolute paths using $READLINK
-            if [[ "$($READLINK -f "$src")" == "$($READLINK -f "$dst")" ]]; then
-                echo "✅ $tool is already installed and up-to-date. Skipping move."
-            else
-                echo "🔄 Updating $tool at $dst..."
-                mv -f "$src" "$dst"
+    # Run sfoundryup with no options (as per instructions)
+    set +e
+    OUTPUT=$(sfoundryup 2>&1)
+    RETCODE=$?
+    set -e
+    if [ $RETCODE -ne 0 ]; then
+        # Check if all essential tools are present
+        MISSING=false
+        for tool in sanvil scast sforge ssolc; do
+            if ! command -v "$tool" &> /dev/null; then
+                echo "❌ $tool is missing."
+                MISSING=true
             fi
+        done
+        if [ "$MISSING" = false ]; then
+            echo "✅ Essential tools are present despite sfoundryup error. Proceeding..."
         else
-            echo "🔄 Moving $tool to $dst..."
-            mv -f "$src" "$dst" 2>/dev/null || true
-        fi
-    done
-
-    # Final check for essential tools
-    for tool in sanvil scast sforge ssolc; do
-        if ! command -v "$tool" &> /dev/null; then
-            echo "❌ $tool is still missing after installation attempt. Exiting."
+            echo "❌ Failed to install Seismic Foundry tools!"
+            echo "$OUTPUT"
             exit 1
         fi
-    done
+    else
+        echo "✅ Seismic Foundry tools installed successfully."
+    fi
 }
 
 ########################################
@@ -188,7 +184,6 @@ request_faucet() {
             ((attempt++))
         fi
     done
-
     echo "❌ Faucet request failed after $MAX_FAUCET_RETRIES attempts. Exiting."
     exit 1
 }
@@ -209,17 +204,9 @@ install_rust
 
 # Install Seismic Foundry and its tools
 install_sfoundry
-install_seismic_foundry_tools() {
-    echo "🔍 Installing Seismic Foundry tools..."
-    if ! command -v sfoundryup &> /dev/null; then
-        echo "❌ sfoundryup not found. Exiting."
-        exit 1
-    fi
-    sfoundryup || { echo "❌ Failed to install Seismic Foundry tools!"; exit 1; }
-}
 install_seismic_foundry_tools
 
-# Check wallet balance and request faucet if needed
+# Check wallet balance; if insufficient, request faucet funds
 if check_balance; then
     echo "✅ Wallet already has sufficient balance. Skipping faucet request."
 else
@@ -244,8 +231,8 @@ bash script/deploy.sh
 
 # Ensure essential Seismic tools (e.g., scast) are installed
 if ! command -v scast &> /dev/null; then
-    echo "❌ scast not found! Reinstalling Seismic Foundry tools..."
-    sfoundryup -p . || sfoundryup -v latest
+    echo "❌ scast not found! Trying to reinstall Seismic Foundry tools..."
+    sfoundryup || true
     source "$SHELL_RC"
     if ! command -v scast &> /dev/null; then
         echo "❌ scast is still missing. Exiting."
@@ -263,7 +250,7 @@ else
     echo "✅ Bun is already installed."
 fi
 
-# Execute a transaction with the extended contract
+# Execute transaction with extended contract
 echo "💰 Executing transaction with extended contract..."
 cd ../cli/
 bun install
