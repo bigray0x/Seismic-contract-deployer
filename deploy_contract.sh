@@ -74,6 +74,8 @@ if ! command -v bun &>/dev/null; then
     info "Installing Bun..."
     curl -fsSL https://bun.sh/install | bash || error "Failed to install Bun"
     [ -f "$HOME/.bun/bin/bun" ] && export PATH="$HOME/.bun/bin:$PATH"
+    reload_shell_profile
+    command -v bun &>/dev/null || error "bun command not found after installation"
     success "Bun installed."
 else
     success "Bun is already installed."
@@ -125,27 +127,6 @@ else
     success "ssolc is already installed."
     command -v ssolc &>/dev/null || error "ssolc command not found despite binary existing"
 fi
-
-# Placeholder for seismic-cli installation and check (uncomment and adjust if installation method is known)
-# SEISMIC_CLI="$BIN_DIR/seismic-cli"
-# if ! command -v seismic-cli &>/dev/null; then
-#     info "Installing seismic-cli..."
-#     # Example: Hypothetical installation (replace with actual method)
-#     # curl -L "https://some-source/seismic-cli.tar.gz" -o seismic-cli.tar.gz || error "Failed to download seismic-cli"
-#     # tar -xzf seismic-cli.tar.gz -C "$BIN_DIR" || error "Failed to extract seismic-cli"
-#     # rm seismic-cli.tar.gz
-#     # chmod +x "$SEISMIC_CLI" || error "Failed to set seismic-cli permissions"
-#     echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.bashrc"
-#     export PATH="$BIN_DIR:$PATH"
-#     reload_shell_profile
-#     if ! command -v seismic-cli &>/dev/null; then
-#         error "seismic-cli command not found after installation"
-#     fi
-#     success "seismic-cli installed and verified."
-# else
-#     success "seismic-cli is already installed."
-#     command -v seismic-cli &>/dev/null || error "seismic-cli command not found despite binary existing"
-# fi
 
 # Return to home directory
 cd "$HOME" || error "Failed to return to home directory"
@@ -205,8 +186,10 @@ BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json 
     rm check_balance.sol
     error "Failed to retrieve balance with sforge script"
 }
+echo "DEBUG: BALANCE_JSON=$BALANCE_JSON"  # Debug output
 rm check_balance.sol
-BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '(.returns.getBalance.value // .returns[0].value // .balance // "0")' | tr '[:upper:]' '[:lower:]')
+# Flexible parsing with fallback
+BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '(.returns.getBalance.value // .returns.value // .balance // "0")' | tr '[:upper:]' '[:lower:]')
 if [[ "$BALANCE_HEX" =~ ^0x[0-9a-f]+$ ]]; then
     BALANCE=$(printf "%d" "$BALANCE_HEX" | awk '{print $1 / 10^18}')  # Convert hex wei to ETH
 elif [[ "$BALANCE_HEX" =~ ^[0-9]+$ ]]; then
@@ -237,8 +220,9 @@ EOF
         rm check_balance.sol
         error "Failed to retrieve balance with sforge script"
     }
+    echo "DEBUG: BALANCE_JSON=$BALANCE_JSON"  # Debug output
     rm check_balance.sol
-    BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '(.returns.getBalance.value // .returns[0].value // .balance // "0")' | tr '[:upper:]' '[:lower:]')
+    BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '(.returns.getBalance.value // .returns.value // .balance // "0")' | tr '[:upper:]' '[:lower:]')
     if [[ "$BALANCE_HEX" =~ ^0x[0-9a-f]+$ ]]; then
         BALANCE=$(printf "%d" "$BALANCE_HEX" | awk '{print $1 / 10^18}')
     elif [[ "$BALANCE_HEX" =~ ^[0-9]+$ ]]; then
