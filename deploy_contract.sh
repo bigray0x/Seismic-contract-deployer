@@ -27,50 +27,15 @@ else
     echo "✅ jq is already installed."
 fi
 
-# Set Seismic Foundry installation directory
-SEISMIC_BIN="$HOME/.seismic/bin"
-mkdir -p "$SEISMIC_BIN"
-
-# Install sfoundryup
-echo "🔍 Installing sfoundryup..."
-curl -L -H "Accept: application/vnd.github.v3.raw" \
-     "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-
-# Ensure PATH is updated
-export PATH="$HOME/.seismic/bin:$PATH"
-echo 'export PATH="$HOME/.seismic/bin:$PATH"' >> ~/.bashrc
-source ~/.bashrc
-
-# Verify sfoundryup installation
-if [ ! -f "$HOME/.seismic/bin/sfoundryup" ]; then
-    echo "❌ sfoundryup installation failed. Exiting."
-    exit 1
-fi
-
-# Run sfoundryup to install Seismic Foundry tools
-echo "🚀 Running sfoundryup to install sfoundry..."
-"$HOME/.seismic/bin/sfoundryup"
-
-# Check if sfoundry is installed
-if ! command -v sfoundry &> /dev/null; then
-    echo "❌ sfoundry installation failed. Retrying clean install..."
-    
-    # REINSTALL SFOUNDRYUP BEFORE TRYING AGAIN
+# Install Seismic Foundry tools if not installed
+if ! command -v sfoundryup &> /dev/null; then
+    echo "🔍 Installing Seismic Foundry tools..."
     curl -L -H "Accept: application/vnd.github.v3.raw" \
          "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-    export PATH="$HOME/.seismic/bin:$PATH"
-    source ~/.bashrc
-
-    # Retry sfoundryup
-    "$HOME/.seismic/bin/sfoundryup"
-fi
-
-# Final verification
-if ! command -v sfoundry &> /dev/null; then
-    echo "❌ sfoundry installation still failed. Exiting."
-    exit 1
+    source /root/.bashrc
+    sfoundryup
 else
-    echo "✅ sfoundry installed successfully."
+    echo "✅ Seismic Foundry tools are already installed."
 fi
 
 # Clone the repository if not already cloned
@@ -102,9 +67,9 @@ if ! command -v bun &> /dev/null; then
     source "$HOME/.bashrc"
 else
     echo "✅ Bun is already installed."
-fi
+fi 
 
-# Navigate to CLI package
+# Navigate to CLI package (corrected path)
 cd ~/try-devnet/packages/cli/ || { echo "❌ Failed to enter CLI directory."; exit 1; }
 
 # Install dependencies with bun
