@@ -36,6 +36,21 @@ install_if_missing() {
     fi
 }
 
+# Reload shell profile
+reload_shell_profile() {
+    local shell_profile
+    case "$(basename "$SHELL")" in
+        bash) shell_profile="$HOME/.bashrc" ;;
+        zsh) shell_profile="$HOME/.zshrc" ;;
+        *) shell_profile="$HOME/.profile" ;;
+    esac
+    if [ -f "$shell_profile" ]; then
+        source "$shell_profile" && success "Shell profile reloaded from $shell_profile"
+    else
+        info "No shell profile found at $shell_profile, relying on current session PATH"
+    fi
+}
+
 # Install dependencies
 info "Installing required dependencies..."
 install_if_missing "curl" "curl"
@@ -81,10 +96,16 @@ if [ ! -f "$SFORGE" ] || [ ! -f "$SANVIL" ]; then
     fi
     cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/forge --locked || error "Failed to install sforge"
     cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/anvil --locked || error "Failed to install sanvil"
+    echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.bashrc"
     export PATH="$BIN_DIR:$PATH"
-    success "sforge and sanvil installed."
+    reload_shell_profile
+    if ! command -v sforge &>/dev/null; then
+        error "sforge command not found after installation"
+    fi
+    success "sforge and sanvil installed and verified."
 else
     success "sforge and sanvil are already installed."
+    command -v sforge &>/dev/null || error "sforge command not found despite binary existing"
 fi
 
 # Install ssolc
@@ -99,9 +120,32 @@ if ! command -v ssolc &>/dev/null; then
     rm ssolc.tar.gz
     sudo chmod +x "$SSOLC" || error "Failed to set ssolc permissions"
     success "ssolc installed at $SSOLC"
+    command -v ssolc &>/dev/null || error "ssolc command not found after installation"
 else
     success "ssolc is already installed."
+    command -v ssolc &>/dev/null || error "ssolc command not found despite binary existing"
 fi
+
+# Placeholder for seismic-cli installation and check (uncomment and adjust if installation method is known)
+# SEISMIC_CLI="$BIN_DIR/seismic-cli"
+# if ! command -v seismic-cli &>/dev/null; then
+#     info "Installing seismic-cli..."
+#     # Example: Hypothetical installation (replace with actual method)
+#     # curl -L "https://some-source/seismic-cli.tar.gz" -o seismic-cli.tar.gz || error "Failed to download seismic-cli"
+#     # tar -xzf seismic-cli.tar.gz -C "$BIN_DIR" || error "Failed to extract seismic-cli"
+#     # rm seismic-cli.tar.gz
+#     # chmod +x "$SEISMIC_CLI" || error "Failed to set seismic-cli permissions"
+#     echo "export PATH=\"$BIN_DIR:\$PATH\"" >> "$HOME/.bashrc"
+#     export PATH="$BIN_DIR:$PATH"
+#     reload_shell_profile
+#     if ! command -v seismic-cli &>/dev/null; then
+#         error "seismic-cli command not found after installation"
+#     fi
+#     success "seismic-cli installed and verified."
+# else
+#     success "seismic-cli is already installed."
+#     command -v seismic-cli &>/dev/null || error "seismic-cli command not found despite binary existing"
+# fi
 
 # Return to home directory
 cd "$HOME" || error "Failed to return to home directory"
@@ -132,7 +176,7 @@ fi
 
 # Validate contract syntax
 info "Validating contract syntax..."
-"$SFORGE" compile contract.sol || error "Contract compilation failed. Fix syntax errors in contract.sol"
+sforge compile contract.sol || error "Contract compilation failed. Fix syntax errors in contract.sol"
 
 # Get and validate wallet address
 while true; do
@@ -157,12 +201,11 @@ contract BalanceChecker {
     }
 }
 EOF
-BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
+BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
     rm check_balance.sol
     error "Failed to retrieve balance with sforge script"
 }
 rm check_balance.sol
-# Flexible parsing for various JSON structures
 BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '(.returns.getBalance.value // .returns[0].value // .balance // "0")' | tr '[:upper:]' '[:lower:]')
 if [[ "$BALANCE_HEX" =~ ^0x[0-9a-f]+$ ]]; then
     BALANCE=$(printf "%d" "$BALANCE_HEX" | awk '{print $1 / 10^18}')  # Convert hex wei to ETH
@@ -190,7 +233,7 @@ contract BalanceChecker {
     }
 }
 EOF
-    BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
+    BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
         rm check_balance.sol
         error "Failed to retrieve balance with sforge script"
     }
@@ -210,7 +253,7 @@ fi
 info "Deploying contract to Seismic Devnet..."
 read -r -s -p "🔍 Enter your private key (input hidden): " PRIVATE_KEY
 echo
-DEPLOY_OUTPUT=$("$SFORGE" create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" contract.sol:SimpleStorage --json) || error "Failed to deploy contract"
+DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" contract.sol:SimpleStorage --json) || error "Failed to deploy contract"
 DEPLOYED_CONTRACT=$(echo "$DEPLOY_OUTPUT" | jq -r '.deployedTo // ""')
 if [ -z "$DEPLOYED_CONTRACT" ]; then
     TX_HASH=$(echo "$DEPLOY_OUTPUT" | jq -r '.transactionHash // ""')
