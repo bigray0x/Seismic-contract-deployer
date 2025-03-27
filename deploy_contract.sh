@@ -32,11 +32,25 @@ if ! command -v sfoundryup &> /dev/null; then
     echo "🔍 Installing Seismic Foundry tools..."
     curl -L -H "Accept: application/vnd.github.v3.raw" \
          "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-    source /root/.bashrc
+    # Ensure environment is updated
+    if [[ -f "$HOME/.bashrc" ]]; then
+        source "$HOME/.bashrc"
+    elif [[ -f "$HOME/.bash_profile" ]]; then
+        source "$HOME/.bash_profile"
+    fi
     sfoundryup
 else
     echo "✅ Seismic Foundry tools are already installed."
 fi
+
+# Install bun if not installed
+if ! command -v bun &> /dev/null; then
+    echo "🔍 Installing bun..."
+    curl -fsSL https://bun.sh/install | bash
+    source "$HOME/.bashrc"
+else
+    echo "✅ Bun is already installed."
+fi 
 
 # Clone the repository if not already cloned
 if [ ! -d "try-devnet" ]; then
@@ -60,16 +74,7 @@ echo "⚠️ Visit the faucet and enter the address shown in the script."
 echo "➡️ Faucet: https://faucet-2.seismicdev.net/"
 read -p "Press Enter after funding the wallet..."
 
-# Install bun if not installed
-if ! command -v bun &> /dev/null; then
-    echo "🔍 Installing bun..."
-    curl -fsSL https://bun.sh/install | bash
-    source "$HOME/.bashrc"
-else
-    echo "✅ Bun is already installed."
-fi 
-
-# Navigate to CLI package (corrected path)
+# Navigate to CLI package
 cd ~/try-devnet/packages/cli/ || { echo "❌ Failed to enter CLI directory."; exit 1; }
 
 # Install dependencies with bun
