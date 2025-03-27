@@ -27,7 +27,7 @@ else
     echo "✅ jq is already installed."
 fi
 
-# Ensure a clean Seismic Foundry installation
+# Ensure Seismic Foundry installation is clean
 SEISMIC_BIN="$HOME/.seismic/bin"
 
 if [ -d "$SEISMIC_BIN" ]; then
@@ -47,23 +47,23 @@ else
 fi
 
 # Run sfoundryup to install Seismic Foundry tools
-if ! command -v sfoundry &> /dev/null; then
-    echo "🚀 Installing sfoundry..."
-    source /root/.bashrc
-    sfoundryup || { echo "❌ sfoundry installation failed. Retrying clean install..."; rm -rf "$SEISMIC_BIN"; sfoundryup; }
+echo "🚀 Running sfoundryup to install sfoundry..."
+source /root/.bashrc
+sfoundryup || { 
+    echo "❌ sfoundryup failed. Retrying clean install...";
+    rm -rf "$SEISMIC_BIN"; 
+    sfoundryup; 
+}
 
-    # Verify installation success
-    if ! command -v sfoundry &> /dev/null; then
-        echo "❌ sfoundry installation still failed. Exiting."
-        exit 1
-    fi
-
-    # Add sfoundry to PATH
-    export PATH="$HOME/.sfoundry/bin:$PATH"
-    echo 'export PATH="$HOME/.sfoundry/bin:$PATH"' >> ~/.bashrc
+# Verify sfoundry installation and fix path if needed
+if [ -f "$HOME/.seismic/bin/sfoundry" ]; then
+    echo "✅ sfoundry installed successfully."
+    export PATH="$HOME/.seismic/bin:$PATH"
+    echo 'export PATH="$HOME/.seismic/bin:$PATH"' >> ~/.bashrc
     source ~/.bashrc
 else
-    echo "✅ sfoundry is already installed."
+    echo "❌ sfoundry installation failed. Exiting."
+    exit 1
 fi
 
 # Clone the repository if not already cloned
