@@ -29,13 +29,6 @@ fi
 
 # Set Seismic Foundry installation directory
 SEISMIC_BIN="$HOME/.seismic/bin"
-
-# Ensure a clean installation of sfoundryup
-if [ -d "$SEISMIC_BIN" ]; then
-    echo "🧹 Removing existing Seismic Foundry installation to prevent conflicts..."
-    rm -rf "$SEISMIC_BIN"
-fi
-
 mkdir -p "$SEISMIC_BIN"
 
 # Install sfoundryup
@@ -61,10 +54,15 @@ echo "🚀 Running sfoundryup to install sfoundry..."
 # Check if sfoundry is installed
 if ! command -v sfoundry &> /dev/null; then
     echo "❌ sfoundry installation failed. Retrying clean install..."
-    rm -rf "$SEISMIC_BIN"
-    mkdir -p "$SEISMIC_BIN"
-    "$HOME/.seismic/bin/sfoundryup"
+    
+    # REINSTALL SFOUNDRYUP BEFORE TRYING AGAIN
+    curl -L -H "Accept: application/vnd.github.v3.raw" \
+         "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
+    export PATH="$HOME/.seismic/bin:$PATH"
     source ~/.bashrc
+
+    # Retry sfoundryup
+    "$HOME/.seismic/bin/sfoundryup"
 fi
 
 # Final verification
