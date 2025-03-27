@@ -103,7 +103,7 @@ else
     success "ssolc is already installed."
 fi
 
-# Return to home directory to ensure consistent working directory
+# Return to home directory
 cd "$HOME" || error "Failed to return to home directory"
 
 # Create contract.sol if missing
@@ -145,10 +145,24 @@ while true; do
     fi
 done
 
-# Check wallet balance using sforge
+# Create a temporary script to check balance
 info "Checking balance for wallet: $WALLET_ADDRESS..."
-BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json -c "cast balance $WALLET_ADDRESS") || error "Failed to retrieve balance"
-BALANCE=$(echo "$BALANCE_JSON" | jq -r '.balance // "0"' | sed 's/[^0-9.]//g' | awk '{print $1 / 10^18}')  # Convert wei to ETH
+cat << EOF > check_balance.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract BalanceChecker {
+    function getBalance(address account) public view returns (uint256) {
+        return account.balance;
+    }
+}
+EOF
+BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)" "$WALLET_ADDRESS") || {
+    rm check_balance.sol
+    error "Failed to retrieve balance with sforge script"
+}
+rm check_balance.sol
+BALANCE=$(echo "$BALANCE_JSON" | jq -r '.returns[0].value // "0"' | sed 's/0x//g' | printf "%d" "0x$(cat -)" | awk '{print $1 / 10^18}')  # Convert hex wei to ETH
 [[ "$BALANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]] || error "Invalid balance format: $BALANCE"
 success "Current balance: $BALANCE ETH"
 
@@ -158,8 +172,22 @@ if (( $(echo "$BALANCE < 0.1" | bc -l) )); then
     echo "Visit https://faucet-2.seismicdev.net, enter $WALLET_ADDRESS, and request tokens."
     read -r -p "Press Enter after requesting funds (wait 15-30s for processing)..."
     # Recheck balance
-    BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json -c "cast balance $WALLET_ADDRESS") || error "Failed to retrieve balance"
-    BALANCE=$(echo "$BALANCE_JSON" | jq -r '.balance // "0"' | sed 's/[^0-9.]//g' | awk '{print $1 / 10^18}')
+    cat << EOF > check_balance.sol
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.0;
+
+contract BalanceChecker {
+    function getBalance(address account) public view returns (uint256) {
+        return account.balance;
+    }
+}
+EOF
+    BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)" "$WALLET_ADDRESS") || {
+        rm check_balance.sol
+        error "Failed to retrieve balance with sforge script"
+    }
+    rm check_balance.sol
+    BALANCE=$(echo "$BALANCE_JSON" | jq -r '.returns[0].value // "0"' | sed 's/0x//g' | printf "%d" "0x$(cat -)" | awk '{print $1 / 10^18}')
     success "Updated balance: $BALANCE ETH"
 fi
 
