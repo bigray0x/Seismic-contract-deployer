@@ -44,21 +44,55 @@ if [ ! -d "try-devnet" ]; then
     echo "🔍 Cloning Seismic try-devnet repository..."
     git clone --recurse-submodules https://github.com/SeismicSystems/try-devnet.git
 fi
+
 cd try-devnet/packages/contract/
 
 # Deploy the first contract
 echo "🚀 Deploying first contract..."
-bash script/deploy.sh
+DEPLOY_OUTPUT=$(bash script/deploy.sh)
+
+# Extract deployed address
+CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | grep -oE '0x[a-fA-F0-9]{40}' | head -n 1)
+
+if [ -z "$CONTRACT_ADDRESS" ]; then
+    echo "❌ Error: Could not extract deployed contract address."
+    exit 1
+fi
+
+echo "✅ First contract deployed: $CONTRACT_ADDRESS"
 
 # Pause for faucet request
-echo "⚠️ Visit the faucet and enter the address shown in the script."
+echo "⚠️ Visit the faucet and enter the contract address below to request funds:"
 echo "➡️ Faucet: https://faucet-2.seismicdev.net/"
+echo "🔹 Address: $CONTRACT_ADDRESS"
 read -p "Press Enter after funding the wallet..."
 
-# Deploy the second contract from try-devnet
+# Ensure we're in the right directory for the second deployment
 cd ../../
+
+# Deploy the second contract from try-devnet
 echo "🚀 Deploying second contract from try-devnet..."
-bash packages/contract/script/deploy.sh
+cd packages/contract/
+if [ -f "script/deploy.sh" ]; then
+    DEPLOY_OUTPUT=$(bash script/deploy.sh)
+    CONTRACT_ADDRESS_2=$(echo "$DEPLOY_OUTPUT" | grep -oE '0x[a-fA-F0-9]{40}' | head -n 1)
+
+    if [ -z "$CONTRACT_ADDRESS_2" ]; then
+        echo "❌ Error: Could not extract deployed contract address for the second contract."
+        exit 1
+    fi
+
+    echo "✅ Second contract deployed: $CONTRACT_ADDRESS_2"
+else
+    echo "❌ Error: Second contract deploy script not found!"
+    exit 1
+fi
+
+# Pause for faucet request before proceeding to interaction
+echo "⚠️ Visit the faucet again and enter the second contract address:"
+echo "➡️ Faucet: https://faucet-2.seismicdev.net/"
+echo "🔹 Address: $CONTRACT_ADDRESS_2"
+read -p "Press Enter after funding the wallet..."
 
 # Install Bun for interaction
 if ! command -v bun &>/dev/null; then
@@ -71,16 +105,11 @@ else
 fi
 
 # Install CLI dependencies and interact with contract
-cd packages/cli/
+cd ../cli/
 echo "🔍 Installing CLI dependencies..."
 bun install
 
 echo "🚀 Running transaction script..."
 bash script/transact.sh
-
-# Pause for faucet request before proceeding
-echo "⚠️ Visit the faucet and enter the address shown in the script."
-echo "➡️ Faucet: https://faucet-2.seismicdev.net/"
-read -p "Press Enter after funding the wallet..."
 
 echo "🎉 Deployment and interaction complete! You did a good job!"
