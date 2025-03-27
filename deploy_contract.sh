@@ -33,9 +33,19 @@ if ! command -v sfoundryup &> /dev/null; then
     curl -L -H "Accept: application/vnd.github.v3.raw" \
          "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
     source /root/.bashrc
-    sfoundryup
 else
     echo "✅ Seismic Foundry tools are already installed."
+fi
+
+# Install sfoundry and ensure it's in PATH
+if ! command -v sfoundry &> /dev/null; then
+    echo "🔍 Installing sfoundry..."
+    sfoundryup
+    export PATH="$HOME/.sfoundry/bin:$PATH"
+    echo 'export PATH="$HOME/.sfoundry/bin:$PATH"' >> ~/.bashrc
+    source ~/.bashrc
+else
+    echo "✅ sfoundry is already installed."
 fi
 
 # Clone the repository if not already cloned
@@ -69,7 +79,7 @@ else
     echo "✅ Bun is already installed."
 fi
 
-# Navigate to CLI package (corrected path)
+# Navigate to CLI package
 cd ~/try-devnet/packages/cli/ || { echo "❌ Failed to enter CLI directory."; exit 1; }
 
 # Install dependencies with bun
