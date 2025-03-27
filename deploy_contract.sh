@@ -1,171 +1,134 @@
 #!/bin/bash
 
-set -euo pipefail
+set -e
 
-# Detect OS
-OS=$(uname -s)
-echo "✅ Detected OS: $OS"
+echo "✅ Detected OS: $(uname -s)"
 
-# Colors for output
-if [[ -t 1 ]]; then
-    RED='\033[0;31m'
-    GREEN='\033[0;32m'
-    BOLD='\033[1m'
-    RESET='\033[0m'
-else
-    RED='' GREEN='' BOLD='' RESET=''
-fi
-
-error() { echo -e "${RED}❌ Error:${RESET} $*" >&2; exit 1; }
-info() { echo -e "${GREEN}🔍${RESET} $*"; }
-success() { echo -e "${GREEN}✅${RESET} $*"; }
-
-# Install a package if missing
+# Function to install a package if missing
 install_if_missing() {
-    local cmd="$1" pkg="$2"
-    if ! command -v "$cmd" &>/dev/null; then
-        info "Installing $cmd..."
-        case "$OS" in
-            Linux) sudo apt-get update && sudo apt-get install -y "$pkg" || error "Failed to install $pkg" ;;
-            Darwin) brew install "$pkg" || error "Failed to install $pkg (ensure Homebrew is installed)" ;;
-            *) error "Unsupported OS: $OS" ;;
-        esac
-        success "$cmd installed."
+    if ! command -v "$1" &>/dev/null; then
+        echo "🔍 Installing $1..."
+        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            sudo apt-get update && sudo apt-get install -y "$2"
+        elif [[ "$OSTYPE" == "darwin"* ]]; then
+            brew install "$2"
+        fi
+        echo "✅ $1 installed."
     else
-        success "$cmd is already installed."
+        echo "✅ $1 is already installed."
     fi
 }
 
-# Install dependencies
-info "Installing required dependencies..."
+# Install required dependencies
+echo "🔍 Installing required dependencies..."
 install_if_missing "curl" "curl"
+install_if_missing "wget" "wget"
 install_if_missing "git" "git"
 install_if_missing "jq" "jq"
 install_if_missing "unzip" "unzip"
 install_if_missing "bc" "bc"
 
-# Install Rust
+# Install Rust if missing
 if ! command -v rustc &>/dev/null; then
-    info "Installing Rust..."
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || error "Failed to install Rust"
-    [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
-    success "Rust installed."
+    echo "🔍 Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+    source "$HOME/.cargo/env"
+    echo "✅ Rust installed."
 else
-    success "Rust is already installed."
+    echo "✅ Rust is already installed."
 fi
 
-# Install Bun
-if ! command -v bun &>/dev/null; then
-    info "Installing Bun..."
-    curl -fsSL https://bun.sh/install | bash || error "Failed to install Bun"
-    [ -f "$HOME/.bun/bin/bun" ] && export PATH="$HOME/.bun/bin:$PATH"
-    success "Bun installed."
-else
-    success "Bun is already installed."
-fi
-
-# Install Seismic Foundry tools
+# Set Seismic Foundry install path
 SEISMIC_DIR="$HOME/.seismic"
 BIN_DIR="$SEISMIC_DIR/bin"
-SFORGE="$BIN_DIR/sforge"
-SANVIL="$BIN_DIR/sanvil"
-SSOLC="/usr/local/bin/ssolc"
+SF_COMMAND="$BIN_DIR/sfoundryup"
 
-if [ ! -f "$SFORGE" ] || [ ! -f "$SANVIL" ]; then
-    info "Installing Seismic Foundry from source..."
-    git clone --branch seismic https://github.com/SeismicSystems/seismic-foundry.git "$SEISMIC_DIR/source" || error "Failed to clone seismic-foundry"
-    cd "$SEISMIC_DIR/source" || error "Failed to navigate to source dir"
-    cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/forge --locked || error "Failed to install sforge"
-    cargo install --root="$SEISMIC_DIR" --profile dev --path ./crates/anvil --locked || error "Failed to install sanvil"
+# Remove broken or failed Seismic Foundry installs
+if [[ -d "$SEISMIC_DIR" && ! -f "$SF_COMMAND" ]]; then
+    echo "⚠️ Detected incomplete Seismic Foundry install. Cleaning up..."
+    rm -rf "$SEISMIC_DIR"
+fi
+
+# Install Seismic Foundry if missing
+if ! command -v sfoundryup &>/dev/null; then
+    echo "🔍 Installing Seismic Foundry..."
+    git clone --depth 1 --branch seismic https://github.com/SeismicSystems/seismic-foundry.git "$SEISMIC_DIR"
+    cd "$SEISMIC_DIR" && cargo build --release
+    mkdir -p "$BIN_DIR"
+    mv target/release/* "$BIN_DIR"
     export PATH="$BIN_DIR:$PATH"
-    success "sforge and sanvil installed."
+    echo "✅ Seismic Foundry installed."
 else
-    success "sforge and sanvil are already installed."
+    echo "✅ Seismic Foundry is already installed."
 fi
 
-# Install ssolc
-if ! command -v ssolc &>/dev/null; then
-    info "Installing ssolc..."
-    case "$OS" in
-        Linux) curl -L "https://github.com/SeismicSystems/seismic-foundry/releases/latest/download/ssolc-linux-x86_64.tar.gz" -o ssolc.tar.gz || error "Failed to download ssolc" ;;
-        Darwin) curl -L "https://github.com/SeismicSystems/seismic-foundry/releases/latest/download/ssolc-darwin-x86_64.tar.gz" -o ssolc.tar.gz || error "Failed to download ssolc" ;;
-        *) error "Unsupported OS for ssolc installation" ;;
-    esac
-    sudo tar -xzf ssolc.tar.gz -C /usr/local/bin || error "Failed to extract ssolc"
-    rm ssolc.tar.gz
-    sudo chmod +x "$SSOLC" || error "Failed to set ssolc permissions"
-    success "ssolc installed at $SSOLC"
+# Ensure Seismic Foundry tools are installed
+echo "🔍 Installing Seismic Foundry tools..."
+if ! "$SF_COMMAND"; then
+    echo "⚠️ First attempt failed. Cleaning up and retrying..."
+    rm -rf "$SEISMIC_DIR"
+    git clone --depth 1 --branch seismic https://github.com/SeismicSystems/seismic-foundry.git "$SEISMIC_DIR"
+    cd "$SEISMIC_DIR" && cargo build --release
+    mv target/release/* "$BIN_DIR"
+    export PATH="$BIN_DIR:$PATH"
+    echo "✅ Seismic Foundry tools installed."
 else
-    success "ssolc is already installed."
+    echo "✅ Seismic Foundry tools are already installed."
 fi
 
-# Create contract.sol if missing
-if [ ! -f "contract.sol" ]; then
-    info "Creating default encrypted contract (SimpleStorage)..."
-    cat << 'EOF' > contract.sol
-// SPDX-License-Identifier: MIT
-pragma solidity ^0.8.0;
-
-contract SimpleStorage {
-    uint256 private storedValue;
-
-    function setValue(uint256 _value) public {
-        storedValue = _value;
-    }
-
-    function getValue() public view returns (uint256) {
-        return storedValue;
-    }
-}
-EOF
-    success "contract.sol created."
-else
-    success "contract.sol already exists."
-fi
-
-# Validate contract syntax
-info "Validating contract syntax..."
-"$SFORGE" compile contract.sol || error "Contract compilation failed. Fix syntax errors in contract.sol"
-
-# Get and validate wallet address
+# Ask for wallet address
 while true; do
-    read -r -p "🔍 Please enter your wallet address: " WALLET_ADDRESS
+    echo "🔍 Please enter your wallet address:"
+    read -r WALLET_ADDRESS
+
+    # Validate wallet format (Ethereum-style)
     if [[ "$WALLET_ADDRESS" =~ ^0x[a-fA-F0-9]{40}$ ]]; then
-        success "Wallet address is valid: $WALLET_ADDRESS"
+        echo "✅ Wallet address is valid: $WALLET_ADDRESS"
         break
     else
-        echo "❌ Invalid wallet address! Must be 0x followed by 40 hex chars."
+        echo "❌ Invalid wallet address! Please enter a valid Ethereum address (0x...40 hex chars)."
     fi
 done
 
-# Check wallet balance using sforge
-info "Checking balance for wallet: $WALLET_ADDRESS..."
-BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json -c "cast balance $WALLET_ADDRESS") || error "Failed to retrieve balance"
-BALANCE=$(echo "$BALANCE_JSON" | jq -r '.balance // "0"' | sed 's/[^0-9.]//g' | awk '{print $1 / 10^18}')  # Convert wei to ETH
-[[ "$BALANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]] || error "Invalid balance format: $BALANCE"
-success "Current balance: $BALANCE ETH"
+# Check wallet balance
+echo "🔍 Checking balance for wallet: $WALLET_ADDRESS..."
+BALANCE_RAW=$(seismic-cli balance "$WALLET_ADDRESS" | jq -r '.balance')
+
+# Validate balance output
+if [[ -z "$BALANCE_RAW" || "$BALANCE_RAW" == "null" ]]; then
+    echo "❌ Error: Failed to retrieve balance."
+    exit 1
+fi
+
+# Convert balance to a numeric value
+BALANCE=$(echo "$BALANCE_RAW" | awk '{print $1+0}')
+echo "💰 Current balance: $BALANCE ETH"
+
+# Ensure balance format is valid
+if ! [[ "$BALANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "❌ Error: Invalid balance format. Exiting..."
+    exit 1
+fi
 
 # Request faucet funds if balance is low
 if (( $(echo "$BALANCE < 0.1" | bc -l) )); then
-    info "Requesting funds from faucet for $WALLET_ADDRESS..."
-    echo "Visit https://faucet-2.seismicdev.net, enter $WALLET_ADDRESS, and request tokens."
-    read -r -p "Press Enter after requesting funds (wait 15-30s for processing)..."
-    # Recheck balance
-    BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json -c "cast balance $WALLET_ADDRESS") || error "Failed to retrieve balance"
-    BALANCE=$(echo "$BALANCE_JSON" | jq -r '.balance // "0"' | sed 's/[^0-9.]//g' | awk '{print $1 / 10^18}')
-    success "Updated balance: $BALANCE ETH"
+    echo "🚰 Requesting funds from faucet for $WALLET_ADDRESS..."
+    for i in {1..3}; do
+        seismic-cli request-faucet --wallet "$WALLET_ADDRESS" && break || echo "❌ Faucet request failed. Retrying in 30s..."
+        sleep 30
+    done
+else
+    echo "✅ Sufficient balance: $BALANCE ETH"
 fi
 
-# Deploy contract using sforge
-info "Deploying contract to Seismic Devnet..."
-read -r -s -p "🔍 Enter your private key (input hidden): " PRIVATE_KEY
-echo
-DEPLOY_OUTPUT=$("$SFORGE" create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" contract.sol:SimpleStorage --json) || error "Failed to deploy contract"
-DEPLOYED_CONTRACT=$(echo "$DEPLOY_OUTPUT" | jq -r '.deployedTo // ""')
-if [ -z "$DEPLOYED_CONTRACT" ]; then
-    TX_HASH=$(echo "$DEPLOY_OUTPUT" | jq -r '.transactionHash // ""')
-    [ -n "$TX_HASH" ] && success "Transaction sent ($TX_HASH), view at https://explorer-2.seismicdev.net/tx/$TX_HASH" && exit 0
-    error "Deployment failed: No address or transaction hash returned"
+# Deploy contract
+echo "🚀 Deploying contract..."
+DEPLOYED_CONTRACT=$(seismic-cli deploy contract.sol --wallet "$WALLET_ADDRESS" | jq -r '.contract_address')
+
+# Validate contract deployment
+if [[ -z "$DEPLOYED_CONTRACT" || "$DEPLOYED_CONTRACT" == "null" ]]; then
+    echo "❌ Error: Contract deployment failed."
+    exit 1
 fi
-success "Contract deployed at: $DEPLOYED_CONTRACT"
-echo "View on explorer: https://explorer-2.seismicdev.net/address/$DEPLOYED_CONTRACT"
+
+echo "✅ Contract deployed at: $DEPLOYED_CONTRACT"
