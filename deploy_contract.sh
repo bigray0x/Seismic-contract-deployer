@@ -50,16 +50,21 @@ fi
 info "Installing required dependencies..."
 install_if_missing "jq" "jq"
 
-# Install Seismic Foundry tools
-info "Installing Seismic Foundry tools..."
-curl -L -H "Accept: application/vnd.github.v3.raw" \
-     "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
+# Install Seismic Foundry tools only if not installed
+if ! command -v sfoundryup &>/dev/null || ! command -v ssolc &>/dev/null; then
+    info "Installing Seismic Foundry tools..."
+    curl -L -H "Accept: application/vnd.github.v3.raw" \
+         "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
 
-# Avoid sourcing .bashrc to prevent "PS1: unbound variable" error
-export PATH="$HOME/.seismic/bin:$PATH"
+    # Avoid sourcing .bashrc to prevent "PS1: unbound variable" error
+    export PATH="$HOME/.seismic/bin:$PATH"
 
-# Run sfoundryup
-sfoundryup || error "Failed to install Seismic Foundry tools"
+    # Run sfoundryup
+    sfoundryup || error "Failed to install Seismic Foundry tools"
+    success "Seismic Foundry tools installed."
+else
+    success "Seismic Foundry tools are already installed."
+fi
 
 # Clone the Seismic Devnet repository
 if [ ! -d "try-devnet" ]; then
