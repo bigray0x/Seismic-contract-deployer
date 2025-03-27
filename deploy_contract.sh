@@ -157,12 +157,20 @@ contract BalanceChecker {
     }
 }
 EOF
-BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)" "$WALLET_ADDRESS") || {
+BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
     rm check_balance.sol
     error "Failed to retrieve balance with sforge script"
 }
 rm check_balance.sol
-BALANCE=$(echo "$BALANCE_JSON" | jq -r '.returns[0].value // "0"' | sed 's/0x//g' | printf "%d" "0x$(cat -)" | awk '{print $1 / 10^18}')  # Convert hex wei to ETH
+# Flexible parsing for various JSON structures
+BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '(.returns.getBalance.value // .returns[0].value // .balance // "0")' | tr '[:upper:]' '[:lower:]')
+if [[ "$BALANCE_HEX" =~ ^0x[0-9a-f]+$ ]]; then
+    BALANCE=$(printf "%d" "$BALANCE_HEX" | awk '{print $1 / 10^18}')  # Convert hex wei to ETH
+elif [[ "$BALANCE_HEX" =~ ^[0-9]+$ ]]; then
+    BALANCE=$(echo "$BALANCE_HEX" | awk '{print $1 / 10^18}')  # Assume decimal wei
+else
+    BALANCE="0"
+fi
 [[ "$BALANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]] || error "Invalid balance format: $BALANCE"
 success "Current balance: $BALANCE ETH"
 
@@ -182,12 +190,19 @@ contract BalanceChecker {
     }
 }
 EOF
-    BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)" "$WALLET_ADDRESS") || {
+    BALANCE_JSON=$("$SFORGE" script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
         rm check_balance.sol
         error "Failed to retrieve balance with sforge script"
     }
     rm check_balance.sol
-    BALANCE=$(echo "$BALANCE_JSON" | jq -r '.returns[0].value // "0"' | sed 's/0x//g' | printf "%d" "0x$(cat -)" | awk '{print $1 / 10^18}')
+    BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '(.returns.getBalance.value // .returns[0].value // .balance // "0")' | tr '[:upper:]' '[:lower:]')
+    if [[ "$BALANCE_HEX" =~ ^0x[0-9a-f]+$ ]]; then
+        BALANCE=$(printf "%d" "$BALANCE_HEX" | awk '{print $1 / 10^18}')
+    elif [[ "$BALANCE_HEX" =~ ^[0-9]+$ ]]; then
+        BALANCE=$(echo "$BALANCE_HEX" | awk '{print $1 / 10^18}')
+    else
+        BALANCE="0"
+    fi
     success "Updated balance: $BALANCE ETH"
 fi
 
