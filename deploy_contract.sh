@@ -172,7 +172,7 @@ echo "DEBUG: BALANCE_JSON=$BALANCE_JSON"
 rm check_balance.sol
 BALANCE_HEX=$(echo "$BALANCE_JSON" | jq -r '.returns."0".value // "0"')
 if [[ "$BALANCE_HEX" =~ ^[0-9]+$ ]]; then
-    BALANCE=$(echo "$BALANCE_HEX" | awk '{print $1 / 10^18}')  # Decimal wei to ETH
+    BALANCE=$(echo "$BALANCE_HEX" | awk '{print $1 / 10^18}')
 else
     BALANCE="0"
 fi
@@ -224,7 +224,7 @@ while true; do
         echo "❌ Invalid private key! Must be 64 hex characters."
     fi
 done
-DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" contract.sol:SimpleStorage --json) || {
+DEPLOY_OUTPUT=$(sforge create --rpc-url https://node-2.seismicdev.net/rpc --private-key "$PRIVATE_KEY" --broadcast contract.sol:SimpleStorage --json) || {
     echo "DEBUG: DEPLOY_OUTPUT=$DEPLOY_OUTPUT"
     error "Failed to deploy contract"
 }
