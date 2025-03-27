@@ -112,10 +112,9 @@ fi
 # Return to home directory
 cd "$HOME" || error "Failed to return to home directory"
 
-# Create contract.sol with EncryptedStorage (assuming this is your intent)
-if [ ! -f "contract.sol" ]; then
-    info "Creating contract file with EncryptedStorage..."
-    cat << 'EOF' > contract.sol
+# Ensure contract.sol has EncryptedStorage
+info "Ensuring contract.sol contains EncryptedStorage..."
+cat << 'EOF' > contract.sol
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.0;
 
@@ -135,14 +134,11 @@ contract EncryptedStorage {
     }
 }
 EOF
-    success "contract.sol created with EncryptedStorage."
-else
-    success "contract.sol already exists."
-fi
+success "contract.sol updated with EncryptedStorage."
 
-# Validate contract syntax
-info "Validating contract syntax..."
-sforge compile contract.sol || error "Contract compilation failed. Fix syntax errors in contract.sol"
+# Validate contract syntax and force compilation
+info "Validating contract syntax and forcing compilation..."
+sforge compile --force contract.sol || error "Contract compilation failed. Fix syntax errors in contract.sol"
 
 # Get and validate wallet address
 while true; do
@@ -167,7 +163,7 @@ contract BalanceChecker {
     }
 }
 EOF
-BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
+BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getValue(address)(uint256)" "$WALLET_ADDRESS") || {
     rm check_balance.sol
     error "Failed to retrieve balance with sforge script"
 }
