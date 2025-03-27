@@ -7,7 +7,7 @@ set -e
 OS=$(uname -s)
 if [[ "$OS" == "Darwin" ]]; then
     SHELL_RC="$HOME/.zshrc"
-    # On macOS, use greadlink (install via "brew install coreutils") if available
+    # On macOS, use greadlink if available; install via coreutils: brew install coreutils
     READLINK="greadlink"
 else
     SHELL_RC="$HOME/.bashrc"
@@ -46,6 +46,7 @@ install_dependencies() {
         check_and_install git git
         check_and_install jq jq
         check_and_install unzip unzip
+        check_and_install bc bc
     else
         sudo apt update && sudo apt upgrade -y
         check_and_install curl curl
@@ -54,6 +55,7 @@ install_dependencies() {
         check_and_install file file
         check_and_install unzip unzip
         check_and_install jq jq
+        check_and_install bc bc
     fi
 }
 
@@ -123,6 +125,31 @@ install_seismic_foundry_tools() {
     else
         echo "✅ Seismic Foundry tools installed successfully."
     fi
+
+    # Fix for 'mv' error: Only move file if source and destination differ
+    for tool in sanvil scast sforge ssolc; do
+        src="target/release/$tool"
+        dst="$HOME/.seismic/bin/$tool"
+        if [[ -f "$dst" ]]; then
+            if [[ "$($READLINK -f "$src")" == "$($READLINK -f "$dst")" ]]; then
+                echo "✅ $tool is already installed and up-to-date. Skipping move."
+            else
+                echo "🔄 Updating $tool at $dst..."
+                mv -f "$src" "$dst"
+            fi
+        else
+            echo "🔄 Moving $tool to $dst..."
+            mv -f "$src" "$dst" 2>/dev/null || true
+        fi
+    done
+
+    # Final check for essential tools
+    for tool in sanvil scast sforge ssolc; do
+        if ! command -v "$tool" &> /dev/null; then
+            echo "❌ $tool is still missing after installation attempt. Exiting."
+            exit 1
+        fi
+    done
 }
 
 ########################################
@@ -159,9 +186,9 @@ check_balance() {
     echo "💰 Current balance: $BALANCE_ETH ETH"
 
     if (( $(echo "$BALANCE_ETH >= 0.1" | bc -l) )); then
-        return 0
+        return 0  # Balance is sufficient
     else
-        return 1
+        return 1  # Balance is insufficient
     fi
 }
 
@@ -173,8 +200,9 @@ request_faucet() {
     while [[ $attempt -le $MAX_FAUCET_RETRIES ]]; do
         echo "🚰 Attempt #$attempt: Requesting test ETH from faucet..."
         RESPONSE=$(curl -s -X POST "$FAUCET_URL" -H "Content-Type: application/json" --data '{
-            "address": "'"$WALLET_ADDRESS"'"
+            "address": "'"$WALLET_ADDRESS"'" 
         }')
+        echo "🔍 Faucet response: $RESPONSE"
         if [[ "$RESPONSE" == *"success"* ]]; then
             echo "✅ Faucet request successful!"
             return 0
@@ -184,6 +212,7 @@ request_faucet() {
             ((attempt++))
         fi
     done
+
     echo "❌ Faucet request failed after $MAX_FAUCET_RETRIES attempts. Exiting."
     exit 1
 }
@@ -206,7 +235,7 @@ install_rust
 install_sfoundry
 install_seismic_foundry_tools
 
-# Check wallet balance; if insufficient, request faucet funds
+# Check if wallet already has funds; if not, request faucet funds.
 if check_balance; then
     echo "✅ Wallet already has sufficient balance. Skipping faucet request."
 else
