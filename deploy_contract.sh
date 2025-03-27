@@ -163,7 +163,7 @@ contract BalanceChecker {
     }
 }
 EOF
-BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getValue(address)(uint256)" "$WALLET_ADDRESS") || {
+BALANCE_JSON=$(sforge script --rpc-url https://node-2.seismicdev.net/rpc --json check_balance.sol --sig "getBalance(address)(uint256)" "$WALLET_ADDRESS") || {
     rm check_balance.sol
     error "Failed to retrieve balance with sforge script"
 }
