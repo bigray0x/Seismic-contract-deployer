@@ -27,43 +27,47 @@ else
     echo "✅ jq is already installed."
 fi
 
-# Ensure Seismic Foundry installation is clean
+# Set Seismic Foundry installation directory
 SEISMIC_BIN="$HOME/.seismic/bin"
 
+# Ensure Seismic Foundry installation is clean
 if [ -d "$SEISMIC_BIN" ]; then
     echo "🧹 Removing existing Seismic Foundry installation to prevent conflicts..."
     rm -rf "$SEISMIC_BIN"
 fi
 
-# Install sfoundryup
+# Install sfoundryup if not installed
 if ! command -v sfoundryup &> /dev/null; then
-    echo "🔍 Installing Seismic Foundry tools..."
+    echo "🔍 Installing sfoundryup..."
     curl -L -H "Accept: application/vnd.github.v3.raw" \
          "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-    source /root/.bashrc
+    source ~/.bashrc
     export PATH="$HOME/.seismic/bin:$PATH"
-else
-    echo "✅ sfoundryup is already installed."
 fi
+
+# Ensure PATH is updated
+export PATH="$HOME/.seismic/bin:$PATH"
+echo 'export PATH="$HOME/.seismic/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
 
 # Run sfoundryup to install Seismic Foundry tools
 echo "🚀 Running sfoundryup to install sfoundry..."
-source /root/.bashrc
-sfoundryup || { 
-    echo "❌ sfoundryup failed. Retrying clean install...";
-    rm -rf "$SEISMIC_BIN"; 
-    sfoundryup; 
-}
+sfoundryup
 
-# Verify sfoundry installation and fix path if needed
-if [ -f "$HOME/.seismic/bin/sfoundry" ]; then
-    echo "✅ sfoundry installed successfully."
-    export PATH="$HOME/.seismic/bin:$PATH"
-    echo 'export PATH="$HOME/.seismic/bin:$PATH"' >> ~/.bashrc
+# Check if sfoundry is installed
+if ! command -v sfoundry &> /dev/null; then
+    echo "❌ sfoundry installation failed. Retrying clean install..."
+    rm -rf "$SEISMIC_BIN"
+    sfoundryup
     source ~/.bashrc
-else
-    echo "❌ sfoundry installation failed. Exiting."
+fi
+
+# Final verification
+if ! command -v sfoundry &> /dev/null; then
+    echo "❌ sfoundry installation still failed. Exiting."
     exit 1
+else
+    echo "✅ sfoundry installed successfully."
 fi
 
 # Clone the repository if not already cloned
