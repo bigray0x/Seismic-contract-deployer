@@ -20,13 +20,13 @@ error() { echo -e "${RED}❌ Error:${RESET} $*" >&2; exit 1; }
 info() { echo -e "${GREEN}🔍${RESET} $*"; }
 success() { echo -e "${GREEN}✅${RESET} $*"; }
 
-# Function to install missing dependencies
+# Install a package if missing
 install_if_missing() {
     local cmd="$1" pkg="$2"
     if ! command -v "$cmd" &>/dev/null; then
         info "Installing $cmd..."
         case "$OS" in
-            Linux) sudo apt update && sudo apt install -y "$pkg" || error "Failed to install $pkg" ;;
+            Linux) sudo apt-get update && sudo apt-get install -y "$pkg" || error "Failed to install $pkg" ;;
             Darwin) brew install "$pkg" || error "Failed to install $pkg (ensure Homebrew is installed)" ;;
             *) error "Unsupported OS: $OS" ;;
         esac
@@ -36,47 +36,39 @@ install_if_missing() {
     fi
 }
 
-# Step 1: Install Rust
-info "Installing Rust..."
-curl https://sh.rustup.rs -sSf | sh -s -- -y || error "Failed to install Rust"
-[ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
-success "Rust installed."
+# Install Rust
+if ! command -v rustc &>/dev/null; then
+    info "Installing Rust..."
+    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y || error "Failed to install Rust"
+    [ -f "$HOME/.cargo/env" ] && source "$HOME/.cargo/env"
+    success "Rust installed."
+else
+    success "Rust is already installed."
+fi
 
-# Step 2: Install jq
-info "Installing jq..."
+# Install jq
+info "Installing required dependencies..."
 install_if_missing "jq" "jq"
 
-# Step 3: Install sfoundryup
+# Install Seismic Foundry tools
 info "Installing Seismic Foundry tools..."
 curl -L -H "Accept: application/vnd.github.v3.raw" \
-     "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash || error "Failed to install sfoundryup"
+     "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
 
-source "$HOME/.bashrc"
-sfoundryup || error "sfoundryup installation failed."
-success "Seismic Foundry tools installed."
+# Avoid sourcing .bashrc to prevent "PS1: unbound variable" error
+export PATH="$HOME/.seismic/bin:$PATH"
 
-# Step 4: Clone Seismic Devnet Repository
-info "Cloning the Seismic Devnet repository..."
-git clone --recurse-submodules https://github.com/SeismicSystems/try-devnet.git || error "Failed to clone repository"
-cd try-devnet/packages/contract/ || error "Failed to navigate to contract directory"
-success "Repository cloned."
+# Run sfoundryup
+sfoundryup || error "Failed to install Seismic Foundry tools"
 
-# Step 5: Deploy Contract
+# Clone the Seismic Devnet repository
+if [ ! -d "try-devnet" ]; then
+    git clone --recurse-submodules https://github.com/SeismicSystems/try-devnet.git || error "Failed to clone repository"
+fi
+cd try-devnet/packages/contract/
+
+# Deploy contract
 info "Deploying contract..."
-bash script/deploy.sh || error "Contract deployment failed."
+bash script/deploy.sh
 
-# Step 6: Install Bun (for interaction)
-info "Installing Bun..."
-curl -fsSL https://bun.sh/install | bash || error "Failed to install Bun"
-export PATH="$HOME/.bun/bin:$PATH"
-success "Bun installed."
-
-# Step 7: Interact with the deployed contract
-info "Setting up contract interaction..."
-cd "$HOME/try-devnet/packages/cli/" || error "Failed to navigate to CLI directory"
-bun install || error "Failed to install dependencies"
-
-info "Running contract transaction script..."
-bash script/transact.sh || error "Transaction execution failed."
-
-success "Seismic Devnet contract deployed and interacted successfully!"
+success "Contract deployed successfully!"
