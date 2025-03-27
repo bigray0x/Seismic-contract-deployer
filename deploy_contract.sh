@@ -1,117 +1,102 @@
 #!/bin/bash
 
-set -e  # Exit immediately if a command fails
-set -o pipefail  # Catch errors in pipes
+set -e
 
-# Ensure script runs as root (Linux only)
-if [[ "$(uname)" == "Linux" && $EUID -ne 0 ]]; then
-    echo "❌ This script must be run as root on Linux."
-    exit 1
-fi
+echo "✅ Detected OS: $(uname -s)"
 
-# Detect OS
-OS=""
-if [[ "$(uname)" == "Darwin" ]]; then
-    OS="macOS"
-    PACKAGE_MANAGER="brew"
-elif [[ "$(uname)" == "Linux" ]]; then
-    OS="Linux"
-    PACKAGE_MANAGER="apt-get"
-else
-    echo "❌ Unsupported OS: $(uname)"
-    exit 1
-fi
-
-echo "✅ Detected OS: $OS"
-echo "🔍 Installing required dependencies..."
-
-# Install required dependencies if missing
-REQUIRED_TOOLS=("curl" "wget" "git" "jq" "unzip" "bc")
-
-for tool in "${REQUIRED_TOOLS[@]}"; do
-    if ! command -v $tool &>/dev/null; then
-        echo "🔹 Installing $tool..."
-        if [[ "$OS" == "macOS" ]]; then
-            brew install $tool
-        else
-            apt-get install -y $tool
+# Function to install a package if missing
+install_if_missing() {
+    if ! command -v "$1" &>/dev/null; then
+        echo "🔍 Installing $1..."
+        if [[ "$OSTYPE" == "linux-gnu"* ]]; then
+            sudo apt-get update && sudo apt-get install -y "$2"
+        elif [[ "$OSTYPE" == "darwin"* ]]; then
+            brew install "$2"
         fi
+        echo "✅ $1 installed."
     else
-        echo "✅ $tool is already installed."
+        echo "✅ $1 is already installed."
     fi
-done
+}
+
+# Install required dependencies
+echo "🔍 Installing required dependencies..."
+install_if_missing "curl" "curl"
+install_if_missing "wget" "wget"
+install_if_missing "git" "git"
+install_if_missing "jq" "jq"
+install_if_missing "unzip" "unzip"
+install_if_missing "bc" "bc"
 
 # Install Rust if missing
 if ! command -v rustc &>/dev/null; then
-    echo "🔹 Installing Rust..."
+    echo "🔍 Installing Rust..."
     curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
-    source $HOME/.cargo/env
+    source "$HOME/.cargo/env"
+    echo "✅ Rust installed."
 else
     echo "✅ Rust is already installed."
 fi
 
-# Install Seismic Foundry tools if missing
-FOUNDATION_DIR="$HOME/.seismic"
-BIN_DIR="$FOUNDATION_DIR/bin"
-PATH_UPDATE="export PATH=$BIN_DIR:\$PATH"
+# Set Seismic Foundry install path
+SEISMIC_DIR="$HOME/.seismic"
+BIN_DIR="$SEISMIC_DIR/bin"
+SF_COMMAND="$BIN_DIR/sfoundryup"
 
+# Remove broken or failed Seismic Foundry installs
+if [[ -d "$SEISMIC_DIR" && ! -f "$SF_COMMAND" ]]; then
+    echo "⚠️ Detected incomplete Seismic Foundry install. Cleaning up..."
+    rm -rf "$SEISMIC_DIR"
+fi
+
+# Install Seismic Foundry if missing
 if ! command -v sfoundryup &>/dev/null; then
     echo "🔍 Installing Seismic Foundry..."
-    curl -sL https://raw.githubusercontent.com/SeismicSystems/sfoundryup/main/install.sh | bash
-    source ~/.bashrc || source ~/.zshrc
+    git clone --depth 1 --branch seismic https://github.com/SeismicSystems/seismic-foundry.git "$SEISMIC_DIR"
+    cd "$SEISMIC_DIR" && cargo build --release
+    mkdir -p "$BIN_DIR"
+    mv target/release/* "$BIN_DIR"
+    export PATH="$BIN_DIR:$PATH"
+    echo "✅ Seismic Foundry installed."
 else
     echo "✅ Seismic Foundry is already installed."
 fi
 
-# Ensure Seismic tools are installed
+# Ensure Seismic Foundry tools are installed
 echo "🔍 Installing Seismic Foundry tools..."
-if ! sfoundryup &>/dev/null; then
-    echo "⚠️ First attempt failed. Trying alternative installation method..."
-    git clone --branch seismic https://github.com/SeismicSystems/seismic-foundry.git $FOUNDATION_DIR
-    cd $FOUNDATION_DIR
-    cargo build --release
-    mv target/release/* $BIN_DIR/ || true
-    echo "$PATH_UPDATE" >> ~/.bashrc || echo "$PATH_UPDATE" >> ~/.zshrc
-    source ~/.bashrc || source ~/.zshrc
+if ! "$SF_COMMAND"; then
+    echo "⚠️ First attempt failed. Cleaning up and retrying..."
+    rm -rf "$SEISMIC_DIR"
+    git clone --depth 1 --branch seismic https://github.com/SeismicSystems/seismic-foundry.git "$SEISMIC_DIR"
+    cd "$SEISMIC_DIR" && cargo build --release
+    mv target/release/* "$BIN_DIR"
+    export PATH="$BIN_DIR:$PATH"
+    echo "✅ Seismic Foundry tools installed."
 else
-    echo "✅ Seismic Foundry tools are installed."
+    echo "✅ Seismic Foundry tools are already installed."
 fi
 
-# Verify tools
-TOOLS=("ssolc" "sforge" "scast" "sanvil" "schisel")
-for tool in "${TOOLS[@]}"; do
-    if ! command -v $tool &>/dev/null; then
-        echo "❌ $tool is missing! Installing..."
-        sfoundryup
-    fi
-done
-
-# Ensure the tools are added to PATH
-echo "$PATH_UPDATE" >> ~/.bashrc || echo "$PATH_UPDATE" >> ~/.zshrc
-source ~/.bashrc || source ~/.zshrc
-
-# Contract Deployment Process
-echo "🔍 Checking faucet balance..."
-FAUCET_URL="https://faucet.seismic.network"
-WALLET_ADDRESS="your-wallet-address"
-
-BALANCE=$(curl -s "$FAUCET_URL/balance/$WALLET_ADDRESS" | jq -r '.balance' || echo "0")
-if [[ -z "$BALANCE" || "$BALANCE" == "0" ]]; then
-    echo "🚰 Requesting test ETH from faucet..."
-    curl -X POST "$FAUCET_URL/request" -d "{\"address\":\"$WALLET_ADDRESS\"}"
-    sleep 30
-fi
-
+# Check wallet balance
+echo "🔍 Checking wallet balance..."
+BALANCE=$(seismic-cli balance | jq -r '.balance' | bc)
 echo "💰 Current balance: $BALANCE ETH"
 
-echo "🚀 Deploying contract..."
-sforge build
-DEPLOY_OUTPUT=$(sforge deploy --json)
-CONTRACT_ADDRESS=$(echo "$DEPLOY_OUTPUT" | jq -r '.address')
-
-if [[ -z "$CONTRACT_ADDRESS" ]]; then
-    echo "❌ Contract deployment failed."
+# Ensure balance format is valid
+if [[ ! "$BALANCE" =~ ^[0-9]+(\.[0-9]+)?$ ]]; then
+    echo "❌ Error: Invalid balance format. Exiting..."
     exit 1
 fi
 
-echo "✅ Contract deployed at: $CONTRACT_ADDRESS"
+# Request faucet funds if balance is low
+if (( $(echo "$BALANCE < 0.1" | bc -l) )); then
+    echo "🚰 Requesting funds from faucet..."
+    for i in {1..3}; do
+        seismic-cli request-faucet && break || echo "❌ Faucet request failed. Retrying in 30s..."
+        sleep 30
+    done
+fi
+
+# Deploy contract
+echo "🚀 Deploying contract..."
+DEPLOYED_CONTRACT=$(seismic-cli deploy contract.sol | jq -r '.contract_address')
+echo "✅ Contract deployed at: $DEPLOYED_CONTRACT"
