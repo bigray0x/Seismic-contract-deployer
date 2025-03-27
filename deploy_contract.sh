@@ -71,7 +71,8 @@ else
     echo "✅ bun is already installed."
 fi
 
-# Install sfoundryup
+# Install sfoundryup and update PATH
+SEISMIC_BIN="$HOME/.seismic/bin"
 if ! command -v sfoundryup &>/dev/null; then
     echo "🔍 Installing sfoundryup..."
     curl -L -H "Accept: application/vnd.github.v3.raw" \
@@ -79,21 +80,31 @@ if ! command -v sfoundryup &>/dev/null; then
         echo "❌ Failed to install sfoundryup."
         exit 1
     }
-    source "$HOME/.bashrc"  # Adjust based on shell (e.g., .zshrc)
+    # Add Seismic bin directory to PATH immediately
+    export PATH="$SEISMIC_BIN:$PATH"
+    # Source .bashrc if it was updated (redundancy)
+    [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
+    # Run sfoundryup to install tools
     sfoundryup || {
-        echo "❌ Failed to run sfoundryup."
+        echo "❌ Failed to run sfoundryup to install Seismic Foundry tools."
         exit 1
     }
-    echo "✅ sfoundryup installed."
+    echo "✅ sfoundryup and Seismic Foundry tools installed."
 else
     echo "✅ sfoundryup is already installed."
+    export PATH="$SEISMIC_BIN:$PATH"  # Ensure PATH is set for existing install
 fi
 
-# Verify seismic-cli (assumed to be installed with sfoundryup)
-command -v seismic-cli >/dev/null || {
-    echo "❌ seismic-cli not found. Assuming it's part of sfoundryup; if not, install manually."
-    exit 1
-}
+# Verify seismic-cli and sforge
+for cmd in seismic-cli sforge; do
+    command -v "$cmd" >/dev/null || {
+        echo "❌ $cmd not found. Running sfoundryup again to ensure tools are installed..."
+        sfoundryup || {
+            echo "❌ Failed to install $cmd with sfoundryup."
+            exit 1
+        }
+    }
+done
 
 # Clone try-devnet repository
 if [ ! -d "try-devnet" ]; then
@@ -169,18 +180,14 @@ if (( $(echo "$BALANCE < 0.1" | bc -l) )); then
     echo "🚰 Requesting funds from faucet for $WALLET_ADDRESS..."
     echo "Please visit https://faucet-2.seismicdev.net/, enter $WALLET_ADDRESS, and request tokens."
     read -p "Press Enter after requesting funds (wait 15-30 seconds)..."
-    for i in {1..3}; do
-        if seismic-cli request-faucet --wallet "$WALLET_ADDRESS"; then
-            echo "✅ Faucet funds requested."
-            break
-        elif [ "$i" -eq 3 ]; then
-            echo "❌ Faucet request failed after 3 attempts."
-            exit 1
-        else
-            echo "❌ Faucet request failed. Retrying in 30s..."
-            sleep 30
-        fi
-    done
+    # Verify balance increased (optional check)
+    BALANCE_JSON=$(seismic-cli balance "$WALLET_ADDRESS") || {
+        echo "❌ Failed to retrieve updated balance."
+        exit 1
+    }
+    BALANCE=$(echo "$BALANCE_JSON" | jq -r '.balance // "0"')
+    BALANCE=$(echo "$BALANCE" | bc 2>/dev/null)
+    echo "💰 Updated balance: $BALANCE ETH"
 fi
 
 # Deploy contract
@@ -202,7 +209,7 @@ if [ -z "$DEPLOYED_CONTRACT" ]; then
 fi
 echo "✅ Contract deployed at: $DEPLOYED_CONTRACT"
 
-# Optional: Interact with the contract (from try-devnet)
+# Optional: Interact with the contract
 echo "🔍 Setting up CLI for interaction..."
 cd ../cli || {
     echo "❌ Failed to navigate to cli directory."
