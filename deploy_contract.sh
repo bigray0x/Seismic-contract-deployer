@@ -32,13 +32,17 @@ if ! command -v sfoundryup &> /dev/null; then
     echo "🔍 Installing Seismic Foundry tools..."
     curl -L -H "Accept: application/vnd.github.v3.raw" \
          "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
-    # Ensure environment is updated
-    if [[ -f "$HOME/.bashrc" ]]; then
-        source "$HOME/.bashrc"
-    elif [[ -f "$HOME/.bash_profile" ]]; then
-        source "$HOME/.bash_profile"
-    fi
+    # Update PATH to include Seismic tools
+    export PATH="$HOME/.seismic/bin:$PATH"
+    # Source bashrc if it exists to ensure environment is updated
+    [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
+    # Run sfoundryup to install the tools
     sfoundryup
+    # Verify installation
+    if ! command -v scast &> /dev/null; then
+        echo "❌ Failed to install Seismic Foundry tools (scast not found)."
+        exit 1
+    fi
 else
     echo "✅ Seismic Foundry tools are already installed."
 fi
@@ -47,7 +51,9 @@ fi
 if ! command -v bun &> /dev/null; then
     echo "🔍 Installing bun..."
     curl -fsSL https://bun.sh/install | bash
-    source "$HOME/.bashrc"
+    # Update PATH to include bun
+    export PATH="$HOME/.bun/bin:$PATH"
+    [ -f "$HOME/.bashrc" ] && source "$HOME/.bashrc"
 else
     echo "✅ Bun is already installed."
 fi 
