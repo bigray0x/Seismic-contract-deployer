@@ -32,7 +32,10 @@ if ! command -v sfoundryup &> /dev/null; then
     echo "🔍 Installing Seismic Foundry tools..."
     curl -L -H "Accept: application/vnd.github.v3.raw" \
          "https://api.github.com/repos/SeismicSystems/seismic-foundry/contents/sfoundryup/install?ref=seismic" | bash
+    
+    # Source environment variables to recognize sfoundryup
     source /root/.bashrc
+    export PATH="$HOME/.seismic/bin:$PATH"
 else
     echo "✅ Seismic Foundry tools are already installed."
 fi
@@ -40,12 +43,21 @@ fi
 # Install sfoundry and ensure it's in PATH
 if ! command -v sfoundry &> /dev/null; then
     echo "🔍 Installing sfoundry..."
+    source /root/.bashrc
     sfoundryup
+    
+    # Add sfoundry to PATH permanently
     export PATH="$HOME/.sfoundry/bin:$PATH"
     echo 'export PATH="$HOME/.sfoundry/bin:$PATH"' >> ~/.bashrc
     source ~/.bashrc
 else
     echo "✅ sfoundry is already installed."
+fi
+
+# Verify installation
+if ! command -v sfoundry &> /dev/null; then
+    echo "❌ sfoundry installation failed. Please check logs."
+    exit 1
 fi
 
 # Clone the repository if not already cloned
